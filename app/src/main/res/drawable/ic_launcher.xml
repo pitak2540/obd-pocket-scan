@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#0B6A88" android:pathData="M0,0h108v108h-108z" />
+    <!-- OBD-II connector outline -->
+    <path android:fillColor="#FFFFFF" android:pathData="M26,40h56l-8,30h-40z" />
+    <path android:fillColor="#0B6A88" android:pathData="M35,46h5v6h-5zM44,46h5v6h-5zM53,46h5v6h-5zM62,46h5v6h-5zM71,46h3v6h-3zM40,58h5v6h-5zM49,58h5v6h-5zM58,58h5v6h-5zM67,58h4v6h-4z" />
+</vector>

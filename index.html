@@ -1,0 +1,1512 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<style>body{margin:0}</style>
+</head>
+<body>
+<title>OBD Pocket Scan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&display=swap">
+<style>
+/* layout: phone-first scan tool. sticky status strip on top, one working view at a time, tab bar at the bottom */
+:root{
+  --bg:#EDF0F3; --surface:#FFFFFF; --sunk:#E2E7EC; --ink:#17212B; --muted:#586573; --line:#D2D9E0;
+  --accent:#0B6A88; --on-accent:#FFFFFF; --ok:#1B7F47; --bad:#C2332A; --mil:#B26A00; --mil-bg:#FFF1D6;
+  --f-display:"Chakra Petch","IBM Plex Sans Thai",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E141A; --surface:#17202A; --sunk:#111922; --ink:#E7EDF2; --muted:#93A1AE; --line:#2A3743;
+  --accent:#55BDDC; --on-accent:#06222C; --ok:#4FC584; --bad:#F26D62; --mil:#F4AE3D; --mil-bg:#3A2A0C; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0E141A; --surface:#17202A; --sunk:#111922; --ink:#E7EDF2; --muted:#93A1AE; --line:#2A3743;
+  --accent:#55BDDC; --on-accent:#06222C; --ok:#4FC584; --bad:#F26D62; --mil:#F4AE3D; --mil-bg:#3A2A0C; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+[hidden]{display:none!important}
+.view{display:flex;flex-direction:column;gap:16px}
+.app{max-width:760px;margin:0 auto;padding-inline:16px;padding-block:0 96px;display:flex;flex-direction:column;gap:16px}
+h1,h2,h3{font-family:var(--f-display);margin:0;text-wrap:balance;line-height:1.25}
+h2{font-size:18px;font-weight:600} h3{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+p{margin:0} .muted{color:var(--muted)} .mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:12px 10px;border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.brand{font-family:var(--f-display);font-weight:700;font-size:17px;letter-spacing:.02em}
+.status{display:flex;align-items:center;gap:8px;min-width:0;flex:1;font-size:13px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--ok)} .dot.busy{background:var(--mil);animation:pulse 1s infinite} .dot.err{background:var(--bad)}
+@keyframes pulse{50%{opacity:.35}}
+@media (prefers-reduced-motion: reduce){.dot.busy{animation:none}}
+.status span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lamp{font-family:var(--f-display);font-weight:700;font-size:12px;letter-spacing:.08em;padding:4px 9px;border-radius:4px;border:1.5px solid var(--line);color:var(--muted)}
+.lamp.lit{border-color:var(--mil);color:var(--mil);background:var(--mil-bg)}
+
+.demo-note{background:var(--mil-bg);color:var(--ink);border-left:3px solid var(--mil);padding:9px 12px;font-size:13.5px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:16px;display:flex;flex-direction:column;gap:14px;min-width:0}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.btn{border:1px solid var(--line);background:var(--surface);border-radius:5px;padding:10px 14px;min-height:44px;cursor:pointer;font-weight:500;text-align:left}
+.btn:hover{border-color:var(--accent)} .btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent);font-weight:600}
+.btn.danger{border-color:var(--bad);color:var(--bad)} .btn.danger.solid{background:var(--bad);color:var(--surface)}
+.btn small{display:block;font-weight:400;font-size:12px;opacity:.8}
+.connect{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
+.picker{display:flex;flex-direction:column;gap:8px;border:1.5px solid var(--accent);border-radius:6px;padding:12px}
+.msg{font-size:13.5px;padding:9px 12px;border-radius:5px;background:var(--sunk)} .msg.err{color:var(--bad)}
+
+.facts{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.fact{background:var(--surface);padding:11px 13px;min-width:0}
+@media (min-width:600px){.facts{grid-template-columns:repeat(3,1fr)}}
+.fact dt{font-size:12px;color:var(--muted)} .fact dd{margin:2px 0 0;font-family:var(--f-mono);font-size:15px;font-weight:500;overflow-wrap:anywhere}
+dl{margin:0}
+
+.dtc{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;padding:12px 0;border-top:1px solid var(--line);align-items:baseline}
+.dtc:first-of-type{border-top:0;padding-top:0}
+.dtc .code{font-family:var(--f-mono);font-weight:600;font-size:19px;letter-spacing:.02em}
+.dtc .desc{min-width:0} .dtc .meta{grid-column:2;font-size:12.5px;color:var(--muted);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pill{font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.pill.bad{color:var(--bad);border-color:var(--bad)} .pill.warn{color:var(--mil);border-color:var(--mil)} .pill.ok{color:var(--ok);border-color:var(--ok)}
+.empty{color:var(--muted);font-size:14px}
+.prog{height:6px;background:var(--sunk);border-radius:3px;overflow:hidden} .prog i{display:block;height:100%;width:0;background:var(--accent)}
+.mod{border-top:1px solid var(--line);padding:14px 0;display:flex;flex-direction:column;gap:10px}
+.mod:first-child{border-top:0;padding-top:0}
+.mod-h{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.mod-h .addr{font-family:var(--f-mono);font-weight:600;font-size:16px}
+.mod-h .nm{font-weight:600;flex:1;min-width:8em} .mod-h .src{font-weight:400;font-size:12.5px;color:var(--muted)}
+.mod .dtc{padding:8px 0 0;border-top:0} .mod .dtc .code{font-size:16px}
+.sel{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:5px;padding:8px 10px;min-height:40px}
+.btn.sm{min-height:36px;padding:6px 12px;font-size:13.5px}
+.confirm{border:1.5px solid var(--bad);border-radius:6px;padding:14px;display:flex;flex-direction:column;gap:10px}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{border:1px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 11px;font-size:13px;cursor:pointer;min-height:34px}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:10px}
+.tile{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tile .name{font-size:12.5px;color:var(--muted);min-height:2.6em;line-height:1.3}
+.tile .val{font-family:var(--f-mono);font-size:27px;font-weight:600;line-height:1;font-variant-numeric:tabular-nums}
+.tile .val small{font-size:12px;font-weight:400;color:var(--muted);margin-left:5px}
+.bar{height:4px;background:var(--sunk);border-radius:2px;overflow:hidden} .bar i{display:block;height:100%;width:0;background:var(--accent)}
+.tile canvas{width:100%;height:38px;display:block}
+
+.mon{display:flex;justify-content:space-between;gap:12px;padding:9px 0;border-top:1px solid var(--line);align-items:center}
+.mon:first-child{border-top:0}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px} td,th{padding:7px 8px;border-top:1px solid var(--line);text-align:left} th{font-weight:500;color:var(--muted);font-size:12.5px}
+td.num{font-family:var(--f-mono);text-align:right;white-space:nowrap}
+
+.term{background:var(--sunk);border:1px solid var(--line);border-radius:6px;padding:10px;font-family:var(--f-mono);font-size:12.5px;height:300px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+.term .tx{color:var(--accent)} .term .er{color:var(--bad)}
+.termin{display:flex;gap:8px} .termin input{flex:1;min-width:0;font-family:var(--f-mono);font-size:15px;padding:10px;border:1px solid var(--line);border-radius:5px;background:var(--surface);color:var(--ink);text-transform:uppercase}
+textarea.report{width:100%;min-height:200px;font-family:var(--f-mono);font-size:12.5px;padding:10px;border:1px solid var(--line);border-radius:5px;background:var(--sunk);color:var(--ink);resize:vertical}
+.hist{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-top:1px solid var(--line);font-size:13.5px;flex-wrap:wrap}
+.hist:first-child{border-top:0}
+ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;font-size:14px}
+
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.tabs div{max-width:760px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
+.tab{border:0;background:none;padding:10px 2px 9px;font-size:12.5px;color:var(--muted);cursor:pointer;border-top:3px solid transparent;min-height:54px;font-weight:500}
+.tab[aria-selected="true"]{color:var(--accent);border-top-color:var(--accent);font-weight:600}
+.tab b{display:block;font-family:var(--f-mono);font-size:11px;font-weight:500;opacity:.75}
+</style>
+
+<div class="app">
+  <header class="top">
+    <span class="brand">OBD Pocket Scan</span>
+    <div class="status"><i class="dot" id="dot"></i><span id="statusText">ยังไม่ได้เชื่อมต่อ</span></div>
+    <span class="lamp" id="lamp" title="ไฟเตือนเครื่องยนต์ (MIL)">CHECK</span>
+  </header>
+
+  <div class="demo-note" id="demoNote" hidden>กำลังแสดงรถตัวอย่าง ข้อมูลทุกค่าบนหน้านี้เป็นค่าจำลอง ไม่ได้มาจากรถของคุณ</div>
+
+  <!-- ภาพรวม -->
+  <section id="v-home" class="view">
+    <div class="panel">
+      <h2>เชื่อมต่อหัวสแกน</h2>
+      <div class="connect">
+        <button class="btn primary" id="btnSerial">Bluetooth ELM327<small>จับคู่ในตั้งค่ามือถือก่อน (PIN 1234 หรือ 0000)</small></button>
+        <button class="btn primary" id="btnUsb">สาย USB<small>ELM327 ชิป FTDI หรือ Tactrix OpenPort 2.0 ผ่าน OTG</small></button>
+        <button class="btn" id="btnDemo">รถตัวอย่าง<small>ลองใช้โดยไม่ต้องต่อรถ</small></button>
+      </div>
+      <div class="row"><button class="btn" id="btnDisc" hidden>ตัดการเชื่อมต่อ</button></div>
+      <div class="picker" id="picker" hidden></div>
+      <div class="msg" id="connMsg" hidden></div>
+    </div>
+
+    <dl class="facts" id="facts"></dl>
+
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>สรุปผลสแกน</h2>
+        <div class="row"><button class="btn primary" id="btnScan">สแกนทั้งคัน</button><button class="btn" id="btnCopy">คัดลอกรายงาน</button></div>
+      </div>
+      <textarea class="report" id="report" readonly aria-label="รายงานผลสแกน"></textarea>
+    </div>
+
+    <div class="panel">
+      <h3>ประวัติการสแกนในเครื่องนี้</h3>
+      <div id="history"></div>
+    </div>
+
+    <div class="panel">
+      <h3>สิ่งที่แอปนี้ทำได้และทำไม่ได้</h3>
+      <ul class="plain">
+        <li>อ่านและลบโค้ดเครื่องยนต์และเกียร์ที่เป็น OBD-II มาตรฐาน ดูค่าสด freeze frame และ readiness</li>
+        <li>อ่านและลบโค้ดของ ABS, ถุงลม และกล่องอื่นบนรถ CAN ที่ตอบคำสั่ง UDS มาตรฐาน โค้ดเฉพาะยี่ห้อจะแสดงเป็นรหัสโดยยังไม่มีคำอธิบาย</li>
+        <li>ยังไม่มี coding, ทำกุญแจ, active test และรีเซ็ตเซอร์วิส</li>
+        <li>OpenPort 2.0: รถ CAN ใช้ได้ทุกเมนู รวมถึงกล่องที่ตอบบน ID ไม่มาตรฐาน รถรุ่นเก่าใช้ได้เฉพาะ K-line แบบ KWP fast init และอ่านได้แค่กล่องเครื่องยนต์</li>
+        <li>ยังไม่รองรับรถ ISO 9141 ที่ต้อง init แบบ 5 baud ผ่าน OpenPort และ OpenPort 1.3</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- โค้ดปัญหา -->
+  <section id="v-dtc" class="view" hidden>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>โค้ดปัญหา (DTC)</h2>
+        <div class="row"><button class="btn primary" id="btnRead">อ่านโค้ด</button><button class="btn danger" id="btnClear">ลบโค้ด</button></div>
+      </div>
+      <div class="confirm" id="clearBox" hidden>
+        <b>ลบโค้ดและดับไฟเตือนเครื่องยนต์?</b>
+        <span class="muted">ดับเครื่องแล้วบิดกุญแจไปที่ ON ก่อนลบ การลบจะล้าง freeze frame และรีเซ็ต readiness ทั้งหมด ถ้ายังไม่ได้ซ่อมสาเหตุ โค้ดจะกลับมาอีก</span>
+        <div class="row"><button class="btn danger solid" id="btnClearYes">ลบโค้ด</button><button class="btn" id="btnClearNo">ยกเลิก</button></div>
+      </div>
+      <div class="msg" id="dtcMsg" hidden></div>
+      <div id="dtcList"></div>
+    </div>
+    <div class="panel">
+      <h2>ระบบกุญแจและ immobilizer</h2>
+      <p class="muted" style="font-size:13px">ช่วยดูว่ารถสตาร์ทไม่ติดเพราะระบบกันขโมยหรือไม่ แอปอ่านอย่างเดียว ไม่ลงทะเบียนกุญแจและไม่รีเซ็ต immobilizer โค้ดเฉพาะยี่ห้อของระบบนี้ต้องเปิดคู่มือประกอบ</p>
+      <div id="immoBox"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>กล่องอื่นในรถ</h2>
+        <div class="row"><button class="btn primary" id="btnMods">สแกนทุกกล่อง</button><button class="btn" id="btnModStop" hidden>หยุด</button></div>
+      </div>
+      <p class="muted" style="font-size:13px">ถามทุกที่อยู่วินิจฉัยบน CAN เพื่อหา ABS, ถุงลม, พวงมาลัยไฟฟ้า, เรือนไมล์ และกล่องอื่น แล้วอ่านโค้ดกับหมายเลขชิ้นส่วนของแต่ละกล่อง ใช้เวลาราวครึ่งนาทีถึง 1 นาที ควรจอดรถและบิดกุญแจไปที่ ON</p>
+      <label class="row" style="font-size:13.5px">ยี่ห้อรถ
+        <select id="brandSel" class="sel">
+          <option value="" id="brandAuto">อัตโนมัติ</option><option value="toyota">Toyota</option><option value="isuzu">Isuzu</option><option value="ford">Ford</option><option value="mazda">Mazda</option><option value="mitsubishi">Mitsubishi</option>
+        </select>
+      </label>
+      <div class="msg" id="brandNote" hidden></div>
+      <div class="prog" id="modProg" hidden><i id="modBar"></i></div>
+      <div class="msg" id="modMsg" hidden></div>
+      <div id="modList"></div>
+    </div>
+  </section>
+
+  <!-- ข้อมูลสด -->
+  <section id="v-live" class="view" hidden>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between">
+        <h2>ข้อมูลสด</h2>
+        <button class="btn primary" id="btnLive">เริ่มอ่านค่า</button>
+      </div>
+      <p class="muted" id="liveHint" style="font-size:13px">แตะเพื่อเลือกค่าที่ต้องการดู เลือกน้อยค่าจะอัปเดตเร็วขึ้น</p>
+      <div class="chips" id="chips"></div>
+    </div>
+    <div class="tiles" id="tiles"></div>
+  </section>
+
+  <!-- ความพร้อม -->
+  <section id="v-ready" class="view" hidden>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between"><h2>ความพร้อมตรวจมลพิษ</h2><button class="btn" id="btnReady">อ่านใหม่</button></div>
+      <div id="readyList"></div>
+    </div>
+    <div class="panel">
+      <div class="row" style="justify-content:space-between"><h2>Freeze frame</h2><button class="btn" id="btnFreeze">อ่านใหม่</button></div>
+      <p class="muted" style="font-size:13px">ค่าที่ ECU บันทึกไว้ ณ วินาทีที่เกิดโค้ด</p>
+      <div class="scroll" id="freezeBox"></div>
+    </div>
+  </section>
+
+  <!-- เทอร์มินัล -->
+  <section id="v-term" class="view" hidden>
+    <div class="panel">
+      <h2>เทอร์มินัล</h2>
+      <p class="muted" style="font-size:13px">ส่งคำสั่งดิบไปที่หัวสแกน เช่น <span class="mono">ATRV</span>, <span class="mono">0105</span>, <span class="mono">0902</span> ทุกคำสั่งที่แอปส่งจะแสดงที่นี่ด้วย</p>
+      <div class="term" id="term" aria-live="off"></div>
+      <form class="termin" id="termForm"><input id="termIn" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="พิมพ์คำสั่ง" aria-label="คำสั่ง"><button class="btn primary" type="submit">ส่ง</button></form>
+      <div class="row"><button class="btn" id="btnLogCopy">คัดลอก log</button></div>
+    </div>
+  </section>
+</div>
+
+<nav class="tabs" aria-label="เมนูหลัก"><div role="tablist">
+  <button class="tab" role="tab" data-v="home" aria-selected="true">ภาพรวม</button>
+  <button class="tab" role="tab" data-v="dtc" aria-selected="false">โค้ด<b id="tabDtc"></b></button>
+  <button class="tab" role="tab" data-v="live" aria-selected="false">ค่าสด</button>
+  <button class="tab" role="tab" data-v="ready" aria-selected="false">ความพร้อม</button>
+  <button class="tab" role="tab" data-v="term" aria-selected="false">เทอร์มินัล</button>
+</div></nav>
+
+<script>
+/* ---------- core: transports, ELM327 driver, OBD-II decoding (no DOM) ---------- */
+const hex = (n, w = 2) => n.toString(16).toUpperCase().padStart(w, '0');
+const toBytes = s => { const o = []; for (let i = 0; i + 1 < s.length; i += 2) o.push(parseInt(s.substr(i, 2), 16)); return o; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+/* every transport carries bytes as one-char-per-byte strings, so binary adapters work too */
+const b2s = v => { let s = ''; for (let i = 0; i < v.length; i++) s += String.fromCharCode(v[i]); return s; };
+const s2b = s => { const v = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) v[i] = s.charCodeAt(i) & 255; return v; };
+
+/* Web Serial: Bluetooth SPP on Android Chrome, COM port (BT or FTDI) on desktop */
+class SerialTransport {
+  constructor(port) { this.p = port; this.onData = () => {}; this.onLost = null; }
+  async open(baud) {
+    await this.p.open({ baudRate: baud || 38400 });
+    this.w = this.p.writable.getWriter(); this.r = this.p.readable.getReader();
+    this.alive = true; this._loop(this.r);
+  }
+  async _loop(r) {
+    try { for (;;) { const { value, done } = await r.read(); if (done) break; if (value) this.onData(b2s(value)); } }
+    catch (e) { /* port dropped */ }
+    if (this.alive && this.r === r) { this.alive = false; if (this.onLost) this.onLost(); }
+  }
+  async write(s) { await this.w.write(s2b(s)); }
+  async close() {
+    this.alive = false;
+    try { await this.r.cancel(); } catch (e) {}
+    try { this.r.releaseLock(); } catch (e) {}
+    try { this.w.releaseLock(); } catch (e) {}
+    try { await this.p.close(); } catch (e) {}
+  }
+}
+
+/* WebUSB: FTDI FT232 cable through USB OTG. Speaks the FTDI vendor protocol directly. */
+class FtdiTransport {
+  constructor(dev) { this.d = dev; this.onData = () => {}; this.onLost = null; }
+  async open(baud) {
+    const d = this.d;
+    if (!d.opened) {
+      await d.open();
+      if (!d.configuration) await d.selectConfiguration(1);
+      const itf = d.configuration.interfaces[0];
+      this.itf = itf.interfaceNumber;
+      await d.claimInterface(this.itf);
+      const eps = itf.alternate.endpoints;
+      this.epIn = eps.find(e => e.direction === 'in' && e.type === 'bulk');
+      this.epOut = eps.find(e => e.direction === 'out' && e.type === 'bulk');
+      if (!this.epIn || !this.epOut) throw new Error('NOT_FTDI');
+    }
+    const ctl = (request, value, index = 0) =>
+      d.controlTransferOut({ requestType: 'vendor', recipient: 'device', request, value, index });
+    await ctl(0, 0);                                   // reset
+    const d8 = Math.round(24000000 / (baud || 38400)); // 3 MHz clock, divisor in eighths
+    const code = [0, 3, 2, 4, 1, 5, 6, 7][d8 & 7];
+    await ctl(3, (d8 >> 3) | ((code & 3) << 14), (code >> 2) & 1); // baud rate
+    await ctl(4, 0x0008);                              // 8N1
+    await ctl(2, 0, 0);                                // no flow control
+    await ctl(9, 8);                                   // latency timer 8 ms
+    await ctl(1, 0x0303);                              // DTR + RTS on
+    if (!this.alive) { this.alive = true; this._loop(); }
+  }
+  async _loop() {
+    const ps = this.epIn.packetSize || 64;
+    try {
+      while (this.alive) {
+        const r = await this.d.transferIn(this.epIn.endpointNumber, ps * 4);
+        if (!r.data) continue;
+        const v = new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength);
+        let s = '';
+        for (let o = 0; o < v.length; o += ps)          // each packet starts with 2 modem-status bytes
+          for (let i = o + 2; i < Math.min(o + ps, v.length); i++) s += String.fromCharCode(v[i]);
+        if (s) this.onData(s);
+      }
+    } catch (e) { if (this.alive) { this.alive = false; if (this.onLost) this.onLost(); } }
+  }
+  async write(s) { await this.d.transferOut(this.epOut.endpointNumber, s2b(s)); }
+  async close() {
+    this.alive = false;
+    try { await this.d.releaseInterface(this.itf); } catch (e) {}
+    try { await this.d.close(); } catch (e) {}
+  }
+}
+
+/* WebUSB: plain bulk in/out pair (Tactrix OpenPort 2.0 exposes one as a CDC data interface) */
+class UsbBulkTransport {
+  constructor(dev) { this.d = dev; this.onData = () => {}; this.onLost = null; }
+  async open() {
+    const d = this.d;
+    await d.open();
+    if (!d.configuration) await d.selectConfiguration(1);
+    for (const itf of d.configuration.interfaces) {
+      const eps = itf.alternate.endpoints.filter(e => e.type === 'bulk');
+      const i = eps.find(e => e.direction === 'in'), o = eps.find(e => e.direction === 'out');
+      if (i && o) { this.itf = itf.interfaceNumber; this.epIn = i; this.epOut = o; break; }
+    }
+    if (!this.epIn) throw new Error('NO_BULK');
+    await d.claimInterface(this.itf);
+    this.alive = true; this._loop();
+  }
+  async _loop() {
+    try {
+      while (this.alive) {
+        const r = await this.d.transferIn(this.epIn.endpointNumber, 4096);
+        if (r.data && r.data.byteLength) this.onData(b2s(new Uint8Array(r.data.buffer, r.data.byteOffset, r.data.byteLength)));
+      }
+    } catch (e) { if (this.alive) { this.alive = false; if (this.onLost) this.onLost(); } }
+  }
+  async write(s) { await this.d.transferOut(this.epOut.endpointNumber, s2b(s)); }
+  async close() {
+    this.alive = false;
+    try { await this.d.releaseInterface(this.itf); } catch (e) {}
+    try { await this.d.close(); } catch (e) {}
+  }
+}
+
+/* Android app build: Bluetooth SPP and USB go through the native bridge (window.Android) instead of browser APIs */
+const NAT = typeof Android !== 'undefined';
+const __nat = { cur: null, open: null,
+  onOpen(ok, msg) { const o = this.open; this.open = null; if (!o) return; clearTimeout(o.timer); ok ? o.res(msg) : o.rej(new Error(msg || 'OPEN_FAILED')); },
+  onData(h) { const t = this.cur; if (!t) return; let str = ''; for (let i = 0; i + 1 < h.length; i += 2) str += String.fromCharCode(parseInt(h.substr(i, 2), 16)); t.onData(str); },
+  onLost() { const t = this.cur; this.cur = null; if (t) { t.opened = false; if (t.onLost) t.onLost(); } },
+  onPerm() {} };
+if (typeof window !== 'undefined') window.__nat = __nat;
+class NativeTransport {
+  /* kind: 'bt' (dev.addr), 'ftdi' or 'bulk' (dev.id) */
+  constructor(kind, dev) { this.kind = kind; this.dev = dev; this.noBaud = kind !== 'ftdi'; this.onData = () => {}; this.onLost = null; this.opened = false; }
+  async open(baud) {
+    if (!this.opened) {
+      await new Promise((res, rej) => {
+        __nat.open = { res, rej, timer: setTimeout(() => { __nat.open = null; rej(new Error('TIMEOUT')); }, 25000) };
+        if (this.kind === 'bt') Android.btConnect(this.dev.addr); else Android.usbOpen(this.dev.id, this.kind === 'ftdi');
+      });
+      this.opened = true; __nat.cur = this;
+    }
+    if (this.kind === 'ftdi') {                           // same FTDI vendor requests as the WebUSB driver
+      const ctl = (request, value, index = 0) => Android.usbControl(0x40, request, value, index);
+      ctl(0, 0);
+      const d8 = Math.round(24000000 / (baud || 38400)), code = [0, 3, 2, 4, 1, 5, 6, 7][d8 & 7];
+      ctl(3, (d8 >> 3) | ((code & 3) << 14), (code >> 2) & 1); ctl(4, 0x0008); ctl(2, 0, 0); ctl(9, 8); ctl(1, 0x0303);
+    }
+  }
+  async reopen(baud) { await this.open(baud); }
+  async write(str) { let h = ''; for (let i = 0; i < str.length; i++) h += hex(str.charCodeAt(i) & 255); Android.write(h); }
+  async close() { this.opened = false; if (__nat.cur === this) __nat.cur = null; Android.close(); }
+}
+
+/* Simulated car, so the app can be tried without an adapter */
+class DemoTransport {
+  constructor() { this.onData = () => {}; this.t0 = Date.now(); this.cleared = false; this.hdr = '7DF';
+    this.mods = { '7B0': [0x52, 0x41, 0x00, 0x09], '780': [0x98, 0x01, 0x00, 0x08, 0x98, 0x05, 0x00, 0x04], '7C0': [], '7C4': [], '7A1': null }; }
+  async open() {} async close() {}
+  async write(s) {
+    const c = s.trim().toUpperCase().replace(/\s/g, '');
+    const r = this.reply(c);
+    setTimeout(() => this.onData(r + '\r\r>'), 20);
+  }
+  reply(c) {
+    if (c === 'ATZ' || c === 'ATI') return 'ELM327 v1.5';
+    if (c === 'ATRV') return (13.9 + 0.1 * Math.sin((Date.now() - this.t0) / 4000)).toFixed(1) + 'V';
+    if (c === 'ATDPN') return 'A6';
+    if (c === 'ATDP') return 'AUTO, ISO 15765-4 (CAN 11/500)';
+    if (c.startsWith('ATSH')) { this.hdr = c.slice(4); return 'OK'; }
+    if (c.startsWith('AT')) return 'OK';
+    if (this.hdr !== '7DF') { const m = this.mod(c); return m ? this.frames(m, hex(parseInt(this.hdr, 16) + 8, 3)) : 'NO DATA'; }
+    const p = this.obd(c);
+    return p ? this.frames(p) : 'NO DATA';
+  }
+  /* physically addressed request to one module */
+  mod(c) {
+    const h = this.hdr, svc = parseInt(c.slice(0, 2), 16);
+    if (h === '7E0') {
+      if (c.startsWith('1902')) return [0x59, 2, 0x0D, ...(this.cleared ? [] : [0x01, 0x71, 0x00, 0x09, 0x03, 0x00, 0x00, 0x08])];
+      if (svc === 0x14) { this.cleared = true; return [0x54]; }
+      return this.obd(c) || [0x7F, svc, 0x11];
+    }
+    if (!(h in this.mods)) return null;
+    const d = this.mods[h];
+    if (d === null) return [0x7F, svc, 0x11];
+    if (c.startsWith('1902')) return [0x59, 2, 0x0D, ...d];
+    if (c === '22F187') return [0x62, 0xF1, 0x87, ...('DEMO-' + h + '-0001').split('').map(x => x.charCodeAt(0))];
+    if (svc === 0x22) return [0x7F, 0x22, 0x31];
+    if (svc === 0x14) { this.mods[h] = []; return [0x54]; }
+    return [0x7F, svc, 0x11];
+  }
+  frames(p, id = '7E8') {
+    const h = a => a.map(b => hex(b & 255)).join('');
+    if (p.length <= 7) return id + hex(p.length) + h(p);
+    const out = [id + '1' + hex(p.length, 3) + h(p.slice(0, 6))];
+    let seq = 1;
+    for (let i = 6; i < p.length; i += 7, seq = (seq + 1) & 15) {
+      const chunk = p.slice(i, i + 7); while (chunk.length < 7) chunk.push(0);
+      out.push(id + '2' + hex(seq, 1) + h(chunk));
+    }
+    return out.join('\r');
+  }
+  sim(pid, t) {
+    const w16 = v => [(v >> 8) & 255, v & 255], s = Math.sin, rev = Math.pow(Math.max(0, s(t / 7)), 3);
+    switch (pid) {
+      case 0x04: return [Math.round((24 + 30 * rev + 2 * s(t)) * 2.55)];
+      case 0x05: return [Math.round(88 + 2 * s(t / 20)) + 40];
+      case 0x06: return [Math.round((3.1 * s(t / 2)) * 1.28 + 128)];
+      case 0x07: return [Math.round((11.7 + 0.8 * s(t / 30)) * 1.28 + 128)];
+      case 0x0B: return [Math.round(34 + 40 * rev + 2 * s(t * 1.7))];
+      case 0x0C: return w16(Math.round((810 + 2300 * rev + 25 * s(t * 2.3)) * 4));
+      case 0x0D: return [Math.round(62 * rev)];
+      case 0x0E: return [Math.round((12 + 14 * rev + s(t * 3) + 64) * 2)];
+      case 0x0F: return [Math.round(41 + s(t / 15)) + 40];
+      case 0x10: return w16(Math.round((3.4 + 22 * rev + 0.2 * s(t * 2)) * 100));
+      case 0x11: return [Math.round((14 + 38 * rev) * 2.55)];
+      case 0x1F: return w16(Math.round(t) + 754);
+      case 0x2F: return [Math.round(58 * 2.55)];
+      case 0x33: return [101];
+      case 0x42: return w16(Math.round((13.9 + 0.1 * s(t / 4)) * 1000));
+      case 0x46: return [33 + 40];
+      case 0x5C: return [Math.round(94 + 2 * s(t / 25)) + 40];
+    }
+    return null;
+  }
+  obd(c) {
+    const SUP = [0x01, 0x04, 0x05, 0x06, 0x07, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x1F, 0x20, 0x2F, 0x33, 0x40, 0x42, 0x46, 0x5C];
+    const mode = c.slice(0, 2), pid = parseInt(c.slice(2, 4), 16), t = (Date.now() - this.t0) / 1000;
+    if (mode === '01') {
+      if (pid % 0x20 === 0) {
+        if (pid > 0x40) return null;
+        const bm = [0, 0, 0, 0];
+        for (const p of SUP) if (p > pid && p <= pid + 0x20) { const i = p - pid - 1; bm[i >> 3] |= 0x80 >> (i & 7); }
+        return [0x41, pid, ...bm];
+      }
+      if (pid === 1) return this.cleared ? [0x41, 1, 0x00, 0x07, 0x65, 0x65] : [0x41, 1, 0x82, 0x07, 0x65, 0x04];
+      const b = this.sim(pid, t); return b ? [0x41, pid, ...b] : null;
+    }
+    if (mode === '02') {
+      if (this.cleared) return null;
+      if (pid === 2) return [0x42, 2, 0, 0x01, 0x71];
+      const b = this.sim(pid, 3.2); return b ? [0x42, pid, 0, ...b] : null;
+    }
+    if (mode === '03') return this.cleared ? [0x43, 0] : [0x43, 2, 0x01, 0x71, 0x03, 0x00];
+    if (mode === '07') return this.cleared ? [0x47, 0] : [0x47, 1, 0x04, 0x20];
+    if (mode === '0A') return [0x4A, 0];
+    if (mode === '04') { this.cleared = true; return [0x44]; }
+    if (c.startsWith('0902')) return [0x49, 2, 1, ...'MR053REH204512345'.split('').map(ch => ch.charCodeAt(0))];
+    return null;
+  }
+}
+
+/* ELM327 AT-command driver */
+class Elm {
+  constructor(t, log) {
+    this.t = t; this.log = log || (() => {}); this.buf = ''; this.waiter = null;
+    this.chain = Promise.resolve(); this.proto = '6'; this.adapter = '';
+    t.onData = s => { this.buf += s; this._check(); };
+  }
+  _check() {
+    if (this.waiter && this.buf.includes('>')) {
+      const w = this.waiter; this.waiter = null; clearTimeout(w.timer);
+      const raw = this.buf; this.buf = ''; w.resolve(raw);
+    }
+  }
+  /* one command at a time; resolves with the response lines when the '>' prompt comes back */
+  cmd(c, timeout = 5000) {
+    const run = () => new Promise((resolve, reject) => {
+      this.buf = '';
+      this.waiter = { resolve, timer: setTimeout(() => { this.waiter = null; reject(new Error('TIMEOUT')); }, timeout) };
+      this.log('tx', c);
+      Promise.resolve(this.t.write(c + '\r')).catch(e => {
+        if (this.waiter) { clearTimeout(this.waiter.timer); this.waiter = null; }
+        reject(e);
+      });
+    }).then(raw => {
+      const lines = raw.replace(/>/g, '').split(/[\r\n]+/).map(l => l.trim()).filter(l => l && l.toUpperCase() !== c.toUpperCase());
+      this.log('rx', lines.join('  ') || '(ว่าง)');
+      return lines;
+    });
+    const p = this.chain.then(run, run);
+    this.chain = p.catch(() => {});
+    return p;
+  }
+  get can() { return '6789ABC'.includes(this.proto); }
+  async init() {
+    await this.cmd('ATZ', 4000).catch(() => {});
+    for (const c of ['ATE0', 'ATL0', 'ATS0', 'ATH1', 'ATAT1', 'ATSP0']) await this.cmd(c, 2500).catch(() => {});
+    const id = await this.cmd('ATI', 2500).catch(() => []);
+    this.adapter = id.find(l => /ELM|STN|OBD/i.test(l)) || id[0] || 'ไม่ทราบรุ่น';
+    const r = await this.cmd('0100', 20000);              // first request also searches for the protocol
+    const ok = r.some(l => /4100/.test(l.replace(/\s/g, '')));
+    if (!ok) { const e = new Error('NO_ECU'); e.detail = r.join(' '); throw e; }
+    const pn = await this.cmd('ATDPN', 2500).catch(() => ['6']);
+    this.proto = ((pn[0] || '6').toUpperCase().replace(/^A(?=.)/, '')[0]) || '6';
+    const dp = await this.cmd('ATDP', 2500).catch(() => []);
+    this.protoName = (dp[0] || '').replace(/^AUTO,\s*/i, '') || 'ไม่ทราบ';
+  }
+  /* split raw lines into one message per ECU, rebuilding ISO-TP multi-frame replies */
+  parse(lines) {
+    const out = [];
+    if (this.can) {
+      const idLen = '79A'.includes(this.proto) ? 8 : 3, ecus = new Map();
+      for (const line of lines) {
+        const s = line.replace(/\s/g, '').toUpperCase();
+        if (!/^[0-9A-F]+$/.test(s) || s.length < idLen + 4 || (s.length - idLen) % 2) continue;
+        const id = s.slice(0, idLen), b = toBytes(s.slice(idLen)), pci = b[0] >> 4;
+        if (pci === 0) ecus.set(id, { len: b[0] & 15, data: b.slice(1) });
+        else if (pci === 1) ecus.set(id, { len: ((b[0] & 15) << 8) | b[1], data: b.slice(2) });
+        else if (pci === 2 && ecus.has(id)) ecus.get(id).data.push(...b.slice(1));
+      }
+      for (const [ecu, m] of ecus) out.push({ ecu, data: m.data.slice(0, m.len) });
+    } else {
+      for (const line of lines) {
+        const s = line.replace(/\s/g, '').toUpperCase();
+        if (!/^[0-9A-F]+$/.test(s) || s.length < 10 || s.length % 2) continue;
+        const b = toBytes(s);
+        out.push({ ecu: hex(b[2]), data: b.slice(3, -1) });
+      }
+    }
+    return out;
+  }
+  async obd(c, timeout = 6000) { const lines = await this.cmd(c, timeout); return { lines, msgs: this.parse(lines) }; }
+  /* mode 01 (live) or 02 (freeze frame) data bytes for one PID, or null when the ECU has none */
+  async pid(p, mode = 1) {
+    const { msgs } = await this.obd(hex(mode) + hex(p) + (mode === 2 ? '00' : ''));
+    const m = msgs.find(x => x.data[0] === 0x40 + mode && x.data[1] === p);
+    return m ? m.data.slice(mode === 2 ? 3 : 2) : null;
+  }
+  async supported() {
+    const set = new Set();
+    for (let base = 0; base <= 0xA0; base += 0x20) {
+      const b = await this.pid(base).catch(() => null);
+      if (!b || b.length < 4) break;
+      for (let i = 0; i < 32; i++) if (b[i >> 3] & (0x80 >> (i & 7))) set.add(base + i + 1);
+      if (!set.has(base + 0x20)) break;
+    }
+    return set;
+  }
+  async dtcs(mode) {
+    const svc = parseInt(mode, 16), { msgs } = await this.obd(mode, 10000), seen = new Set(), out = [];
+    for (const m of msgs) {
+      if (m.data[0] !== 0x40 + svc) continue;
+      const d = m.data.slice(this.can ? 2 : 1);
+      for (let i = 0; i + 1 < d.length; i += 2) {
+        if (!d[i] && !d[i + 1]) continue;
+        const code = dtcCode(d[i], d[i + 1]);
+        if (!seen.has(code + m.ecu)) { seen.add(code + m.ecu); out.push({ code, ecu: m.ecu }); }
+      }
+    }
+    return out;
+  }
+  async clear() { const { msgs } = await this.obd('04', 10000); return msgs.some(m => m.data[0] === 0x44); }
+  async vin() {
+    const { msgs } = await this.obd('0902', 10000);
+    const ms = msgs.filter(m => m.data[0] === 0x49 && m.data[1] === 2);
+    if (!ms.length) return '';
+    const first = ms[0].ecu;
+    const bytes = [].concat(...ms.filter(m => m.ecu === first).map(m => m.data.slice(3)));
+    const s = bytes.filter(b => b >= 0x30 && b <= 0x5A).map(b => String.fromCharCode(b)).join('');
+    return s.slice(-17);
+  }
+  async readiness() {
+    const b = await this.pid(1); if (!b || b.length < 4) return null;
+    const diesel = !!(b[1] & 8), mons = [];
+    const add = (name, avail, incomplete) => { if (avail) mons.push({ name, done: !incomplete }); };
+    add('จุดระเบิดผิดพลาด (Misfire)', b[1] & 1, b[1] & 16);
+    add('ระบบเชื้อเพลิง', b[1] & 2, b[1] & 32);
+    add('ชิ้นส่วนโดยรวม', b[1] & 4, b[1] & 64);
+    const names = diesel
+      ? ['แคตตาไลติก NMHC', 'ระบบบำบัด NOx/SCR', null, 'แรงดันบูสต์', null, 'เซนเซอร์ไอเสีย', 'กรองเขม่า (DPF)', 'EGR / VVT']
+      : ['แคตตาไลติก', 'แคตตาไลติกแบบอุ่น', 'ระบบไอระเหยน้ำมัน (EVAP)', 'ระบบอากาศเสริม', 'น้ำยาแอร์', 'ออกซิเจนเซนเซอร์', 'ฮีตเตอร์ออกซิเจนเซนเซอร์', 'EGR / VVT'];
+    names.forEach((n, i) => { if (n) add(n, b[2] & (1 << i), b[3] & (1 << i)); });
+    return { mil: !!(b[0] & 0x80), count: b[0] & 0x7F, diesel, mons };
+  }
+  /* ----- other control modules (ABS, SRS, body...) over UDS on CAN ----- */
+  get ext29() { return '79A'.includes(this.proto); }
+  modIds() {
+    const o = [];
+    if (this.ext29) { for (let a = 0; a < 256; a++) if (a !== 0xF1 && a !== 0x33) o.push(a); }
+    else for (let i = 0x700; i <= 0x7E7; i++) if (i !== 0x7DF) o.push(i);
+    return o;
+  }
+  async modBegin() {
+    if (!this.can) throw new Error('NOT_CAN');
+    await this.cmd('ATAT0', 2000).catch(() => {});
+    await this.cmd('ATST19', 2000).catch(() => {});            // 100 ms per silent address
+    for (const c of this.ext29 ? ['ATCF18DAF100', 'ATCM1FFFFF00'] : ['ATCF700', 'ATCM700']) {
+      const r = await this.cmd(c, 2000);
+      if (!r.some(l => /OK/i.test(l))) throw new Error('NO_FILTER');
+    }
+  }
+  async modReq(id, payload, slow) {
+    await this.cmd('ATSH' + (this.ext29 ? 'DA' + hex(id) + 'F1' : hex(id, 3)), 2000);
+    if (slow) await this.cmd('ATSTFF', 2000).catch(() => {});
+    try { return (await this.obd(payload, slow ? 8000 : 3000)).msgs; }
+    finally { if (slow) await this.cmd('ATST19', 2000).catch(() => {}); }
+  }
+  async modEnd() { for (const c of ['ATAR', 'ATAT1', 'ATST32', this.ext29 ? 'ATSHDB33F1' : 'ATSH7DF']) await this.cmd(c, 2000).catch(() => {}); }
+  /* read one module's codes: UDS 19 02 first, KWP2000 18 00 as fallback. null = nobody at that address */
+  async modRead(id) {
+    const pick = (msgs, pos, svc) => {
+      const p = msgs.find(m => m.data[0] === pos); if (p) return { ok: p };
+      const n = msgs.find(m => m.data[0] === 0x7F && m.data[1] === svc); return n ? { nrc: n } : null;
+    };
+    let r = pick(await this.modReq(id, '19020D'), 0x59, 0x19);
+    if (!r) return null;
+    if (r.ok) return this.modRead0(id, r.ok);
+    if (r.nrc.data[2] === 0x7F || r.nrc.data[2] === 0x7E) {   // not available in the default session: try extended
+      await this.modReq(id, '1003');
+      const again = pick(await this.modReq(id, '19020D'), 0x59, 0x19);
+      if (again && again.ok) return this.modRead0(id, again.ok);
+    }
+    const ecu = r.nrc.ecu, nrc = r.nrc.data[2];
+    r = pick(await this.modReq(id, '1800FF00'), 0x58, 0x18);
+    if (r && r.ok) {
+      const d = r.ok.data.slice(2), dtcs = [];
+      for (let i = 0; i + 2 < d.length; i += 3) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
+      return { id, ecu, proto: 'kwp', dtcs };
+    }
+    return { id, ecu, proto: null, nrc, dtcs: [] };
+  }
+  modRead0(id, msg) {
+    const d = msg.data.slice(3), dtcs = [];
+    for (let i = 0; i + 3 < d.length; i += 4) {
+      if (!d[i] && !d[i + 1] && !d[i + 2]) continue;
+      const base = dtcCode(d[i], d[i + 1]);
+      dtcs.push({ code: base + (d[i + 2] ? '-' + hex(d[i + 2]) : ''), base, status: d[i + 3] });
+    }
+    return { id, ecu: msg.ecu, proto: 'uds', dtcs };
+  }
+  /* what the module says about itself: UDS identifiers F197 system name, F187 part number, F18A supplier */
+  async modInfo(id) {
+    const out = {};
+    for (const [did, key] of [['F197', 'system'], ['F187', 'part'], ['F18A', 'supplier']]) {
+      const m = (await this.modReq(id, '22' + did).catch(() => [])).find(x => x.data[0] === 0x62);
+      if (!m) continue;
+      const s = m.data.slice(3).filter(b => b >= 0x20 && b < 0x7F).map(b => String.fromCharCode(b)).join('').trim();
+      if (s.length >= 2) out[key] = s;
+    }
+    return out;
+  }
+  async modClear(id, proto) { const m = await this.modReq(id, proto === 'kwp' ? '14FF00' : '14FFFFFF', true); return m.some(x => x.data[0] === 0x54); }
+  async shutdown() { await this.cmd('ATPC', 1000).catch(() => {}); }
+  async voltage() { const r = await this.cmd('ATRV', 2500).catch(() => []); const m = (r[0] || '').match(/[\d.]+/); return m ? parseFloat(m[0]) : null; }
+}
+
+/* Tactrix OpenPort 2.0, driven with its native "at" protocol (layout taken from the open-source j2534 driver).
+   CAN cars: raw CAN channel with our own ISO-TP, so a module may answer on any ID.
+   Pre-CAN cars: K-line with ISO 14230 (KWP2000) fast init. */
+class OpenPort extends Elm {
+  constructor(t, log) {
+    super(t, log);
+    this.rx = ''; this.textWait = null; this.rawNeed = 0; this.lastRx = 0;
+    this.mode = 'can'; this.ch = '5'; this.isOpen = false; this.ext = false;
+    this.txId = 0x7DF; this.fnId = 0x7DF; this.done = []; this.part = new Map();
+    this.kcur = null; this.lastK = 0;
+    t.onData = s => { this.rx += s; this._pump(); };
+  }
+  get can() { return this.mode === 'can'; }
+  get ext29() { return this.ext; }
+  _id(n) { return String.fromCharCode((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255); }
+  _functional() { return this.txId === 0x7DF || this.txId === 0x18DB33F1; }
+
+  /* ---- incoming stream: text replies ("arX ...\r\n"), binary packets ('a' 'r' channel len type ...), raw init bytes ---- */
+  _pump() {
+    for (;;) {
+      if (this.rawNeed) {                                   // bytes that follow an "ary" reply
+        if (this.rx.length < this.rawNeed) return;
+        const raw = Array.from(s2b(this.rx.slice(0, this.rawNeed))); this.rx = this.rx.slice(this.rawNeed); this.rawNeed = 0;
+        const w = this.textWait; if (w) { this.textWait = null; clearTimeout(w.timer); w.resolve(raw); }
+        continue;
+      }
+      const at = this.rx.indexOf('ar');
+      if (at < 0) { this.rx = this.rx.slice(-1); return; }
+      if (at > 0) this.rx = this.rx.slice(at);
+      if (this.rx.length < 4) return;
+      const ch = this.rx[2];
+      if (ch >= '0' && ch <= '9') {
+        const len = this.rx.charCodeAt(3);
+        if (this.rx.length < 4 + len) return;
+        const p = Array.from(s2b(this.rx.slice(4, 4 + len))); this.rx = this.rx.slice(4 + len);
+        this.lastRx = Date.now();
+        const type = p[0];
+        if (ch === '5' || ch === '6') {                     // CAN: type, timestamp[4], id[4], data
+          if (type === 0x00 && p.length >= 10) this._canFrame(((p[5] << 24) | (p[6] << 16) | (p[7] << 8) | p[8]) >>> 0, p.slice(9));
+        } else {                                            // K-line: type, data (timestamp only on indications)
+          if (type === 0x80) this._kEnd();
+          else if (type === 0x00) { if (!this.kcur) this.kcur = []; this.kcur.push(...p.slice(1)); }
+          else if (type === 0x40) this._kEnd();
+        }
+      } else {
+        const end = this.rx.indexOf('\r\n');
+        if (end < 0) return;
+        const line = this.rx.slice(0, end); this.rx = this.rx.slice(end + 2);
+        const w = this.textWait;
+        if (w && line.startsWith('are')) { this.textWait = null; clearTimeout(w.timer); w.reject(new Error('OPENPORT ' + line)); }
+        else if (w && w.expect === 'ary' && line.startsWith('ary')) { this.rawNeed = parseInt(line.slice(5), 10) || 0; if (!this.rawNeed) { this.textWait = null; clearTimeout(w.timer); w.resolve([]); } }
+        else if (w && line.startsWith(w.expect)) { this.textWait = null; clearTimeout(w.timer); w.resolve(line); }
+      }
+    }
+  }
+  /* ISO-TP reassembly per CAN id */
+  _canFrame(id, d) {
+    if (id === this.txId) return;
+    if (this.ext ? (id >>> 8) !== 0x18DAF1 : (id < 0x700 || id > 0x7FF)) return;
+    const pci = d[0] >> 4;
+    if (pci === 0) { const n = d[0] & 15; if (n && n <= 7) this.done.push({ id, data: d.slice(1, 1 + n) }); }
+    else if (pci === 1) {
+      this.part.set(id, { len: ((d[0] & 15) << 8) | d[1], data: d.slice(2, 8) });
+      const fc = !this._functional() ? this.txId : this.ext ? (0x18DA00F1 | ((id & 255) << 8)) >>> 0 : id - 8;
+      this._sendCan(fc, [0x30, 0, 0]).catch(() => {});      // flow control: send everything, no delay
+    } else if (pci === 2) {
+      const m = this.part.get(id); if (!m) return;
+      m.data.push(...d.slice(1));
+      if (m.data.length >= m.len) { this.part.delete(id); this.done.push({ id, data: m.data.slice(0, m.len) }); }
+    }
+  }
+  _kEnd() {
+    const b = this.kcur; this.kcur = null;
+    if (!b || b.length < 4) return;
+    let n = b[0] & 0x3F, o = 3;                             // KWP header: format, target, source [, length]
+    if (!n) { n = b[3]; o = 4; }
+    if (b[2] === 0xF1 || b.length < o + n) return;          // our own echo, or a short message
+    this.done.push({ id: b[2], data: b.slice(o, o + n) });
+  }
+  _sendCan(id, bytes) {
+    const d = bytes.slice(0, 8); while (d.length < 8) d.push(0);
+    return this.t.write('att5 12 ' + (this.ext ? 0x100 : 0) + '\r\n' + this._id(id) + b2s(d));
+  }
+
+  _lock(fn) { const p = this.chain.then(fn, fn); this.chain = p.catch(() => {}); return p; }
+  _at(c, expect = 'aro', bin = '', timeout = 2000) {
+    return new Promise((resolve, reject) => {
+      this.textWait = { expect, resolve, reject, timer: setTimeout(() => { this.textWait = null; this.rawNeed = 0; reject(new Error('TIMEOUT')); }, timeout) };
+      Promise.resolve(this.t.write(c + '\r\n' + bin)).catch(e => { if (this.textWait) { clearTimeout(this.textWait.timer); this.textWait = null; } reject(e); });
+    });
+  }
+  at(c, expect, bin, timeout) { return this._lock(() => this._at(c, expect, bin, timeout)); }
+
+  /* one diagnostic request, every ECU's reply. firstWait = how long to wait for the first byte of an answer */
+  async _req(bytes, firstWait) {
+    this.done = []; this.part.clear(); this.kcur = null;
+    if (this.mode === 'can') await this._sendCan(this.txId, [bytes.length, ...bytes]);
+    else {
+      if (Date.now() - this.lastK > 4000) await this._kInit();   // session drops after 5 s of silence
+      this.done = [];
+      await this.t.write('att4 ' + (bytes.length + 3) + ' 0\r\n' + b2s([0xC0 | bytes.length, 0x33, 0xF1, ...bytes]));
+      this.lastK = Date.now();
+    }
+    const t0 = Date.now(), settle = this.mode === 'can' ? 50 : 160; let limit = firstWait;
+    this.lastRx = 0;
+    for (;;) {
+      await sleep(6);
+      const now = Date.now(), quiet = now - this.lastRx;
+      for (let i = this.done.length - 1; i >= 0; i--)        // 7F xx 78: the ECU asks for more time
+        if (this.done[i].data[0] === 0x7F && this.done[i].data[2] === 0x78) { this.done.splice(i, 1); limit = Math.max(limit, 5000); }
+      const busy = this.part.size || this.kcur;
+      if (this.done.length && !busy && quiet > settle) break;
+      if (busy && quiet > 1000) { this.part.clear(); this._kEnd(); if (this.done.length) break; }
+      if (!busy && !this.done.length && now - t0 > limit) break;
+      if (now - t0 > limit + 6000) break;
+    }
+    if (this.mode !== 'can') this.lastK = Date.now();
+    const w = this.mode !== 'can' ? 2 : this.ext ? 8 : 3;
+    return this.done.map(m => ({ ecu: hex(m.id, w), data: m.data }));
+  }
+  async obd(c, timeout = 1500) {
+    const bytes = toBytes(c.replace(/\s/g, ''));
+    return this._lock(async () => {
+      this.log('tx', c);
+      const msgs = await this._req(bytes, Math.min(timeout, this.mode === 'can' ? 600 : 1500));
+      const lines = msgs.length ? msgs.map(m => m.ecu + ' ' + m.data.map(b => hex(b)).join(' ')) : ['NO DATA'];
+      this.log('rx', lines.join('  '));
+      return { lines, msgs };
+    });
+  }
+  /* terminal: "at..." goes to the cable as-is, hex goes out as a diagnostic request */
+  async cmd(c) {
+    if (/^at/i.test(c)) { this.log('tx', c); const l = await this.at(c.toLowerCase(), 'ar'); this.log('rx', String(l)); return [String(l)]; }
+    return (await this.obd(c)).lines;
+  }
+
+  async _close() { if (this.isOpen) { await this._at('atc' + this.ch, 'aro', '', 800).catch(() => {}); this.isOpen = false; } }
+  async _openCan(baud, ext) {
+    this.mode = 'can'; this.ch = '5'; this.ext = ext;
+    const fl = ext ? 0x100 : 0;
+    await this._at('ato5 ' + fl + ' ' + baud + ' 0');
+    this.isOpen = true;
+    // pass filter for the diagnostic ID range only, so normal bus traffic never reaches the phone
+    await this._at('atf5 1 ' + fl + ' 4', 'arf', this._id(0xFFFFFF00) + this._id(ext ? 0x18DAF100 : 0x700));
+  }
+  async _kInit() {
+    this.log('tx', 'fast init C1 33 F1 81');
+    const r = await this._at('aty4 4 0', 'ary', b2s([0xC1, 0x33, 0xF1, 0x81]), 2500);
+    this.log('rx', r.map(b => hex(b)).join(' ') || '(ว่าง)');
+    this.lastK = Date.now();
+    if (!r.includes(0xC1)) throw new Error('KWP_INIT');
+  }
+  async init() {
+    await this._lock(async () => {
+      const ari = await this._at('\r\n\r\nati', 'ari');
+      this.adapter = 'Tactrix OpenPort 2.0 (' + ari.replace(/^ari\s*/, '').trim() + ')';
+      await this._at('ata');
+      let found = false;
+      for (const [baud, ext] of [[500000, false], [500000, true], [250000, false], [250000, true]]) {
+        try {
+          await this._openCan(baud, ext);
+          for (const id of ext ? [0x18DB33F1, 0x18DA10F1] : [0x7DF, 0x7E0]) {   // functional first, then engine ECU directly
+            this.txId = id;
+            const m = await this._req([0x01, 0x00], 700).catch(() => []);
+            if (m.some(x => x.data[0] === 0x41 && x.data[1] === 0)) { found = true; this.fnId = id; break; }
+          }
+        } catch (e) { this.log('er', String(e.message || e)); }
+        if (found) { this.proto = ext ? '7' : '6'; this.protoName = 'ISO 15765-4 (CAN ' + (ext ? 29 : 11) + '/' + baud / 1000 + ')'; break; }
+        await this._close();
+      }
+      if (!found) {                                           // older car: K-line, KWP2000 fast init
+        try {
+          this.mode = 'kwp'; this.ch = '4'; this.ext = false;
+          await this._at('ato4 0 10400 0'); this.isOpen = true;
+          await this._at('atf4 1 0 1', 'arf', '\x00\x00');
+          await this._kInit();
+          const m = await this._req([0x01, 0x00], 1500);
+          if (m.some(x => x.data[0] === 0x41 && x.data[1] === 0)) { found = true; this.proto = '5'; this.protoName = 'ISO 14230-4 KWP (fast init, 10.4 kbaud)'; }
+        } catch (e) { this.log('er', String(e.message || e)); }
+        if (!found) await this._close();
+      }
+      if (!found) { const e = new Error('NO_ECU'); e.detail = 'ลอง CAN 500k/250k และ K-line KWP fast init แล้ว'; throw e; }
+    });
+  }
+
+  /* modules: with raw CAN there is nothing to prepare, any 7xx / 18DAF1xx reply is heard */
+  async modBegin() { if (!this.can) throw new Error('NOT_CAN'); }
+  async modEnd() { this.txId = this.fnId; }
+  modReq(id, payload, slow) {
+    return this._lock(async () => {
+      const tx = this.ext ? (0x18DA00F1 | (id << 8)) >>> 0 : id;
+      try {
+        this.txId = tx;
+        const msgs = await this._req(toBytes(payload), slow ? 5000 : 100);
+        if (msgs.length) { this.log('tx', hex(tx, this.ext ? 8 : 3) + ' ' + payload); this.log('rx', msgs.map(m => m.ecu + ' ' + m.data.map(b => hex(b)).join(' ')).join('  ')); }
+        return msgs;
+      } finally { this.txId = this.fnId; }
+    });
+  }
+  async voltage() { const l = await this.at('atr 16', 'arr').catch(() => ''); const p = String(l).trim().split(/\s+/); return p[2] ? parseInt(p[2], 10) / 1000 : null; }
+  async shutdown() { await this._lock(async () => { await this._close(); await this._at('atz', 'aro', '', 800).catch(() => {}); }); }
+}
+
+function dtcCode(a, b) { return 'PCBU'[a >> 6] + ((a >> 4) & 3) + hex(a & 15, 1) + hex(b); }
+
+/* Mode 01 PIDs: [id, Thai name, unit, min, max, decimals, formula(bytes)] */
+const PIDS = [
+  [0x0C, 'รอบเครื่องยนต์', 'rpm', 0, 7000, 0, b => (b[0] * 256 + b[1]) / 4],
+  [0x0D, 'ความเร็วรถ', 'km/h', 0, 220, 0, b => b[0]],
+  [0x05, 'อุณหภูมิน้ำหล่อเย็น', '°C', -40, 130, 0, b => b[0] - 40],
+  [0x04, 'ภาระเครื่องยนต์', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x11, 'ตำแหน่งลิ้นปีกผีเสื้อ', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x42, 'แรงดันไฟ ECU', 'V', 8, 16, 1, b => (b[0] * 256 + b[1]) / 1000],
+  [0x06, 'Fuel trim ระยะสั้น B1', '%', -25, 25, 1, b => (b[0] - 128) / 1.28],
+  [0x07, 'Fuel trim ระยะยาว B1', '%', -25, 25, 1, b => (b[0] - 128) / 1.28],
+  [0x08, 'Fuel trim ระยะสั้น B2', '%', -25, 25, 1, b => (b[0] - 128) / 1.28],
+  [0x09, 'Fuel trim ระยะยาว B2', '%', -25, 25, 1, b => (b[0] - 128) / 1.28],
+  [0x0B, 'แรงดันท่อร่วมไอดี (MAP)', 'kPa', 0, 255, 0, b => b[0]],
+  [0x10, 'มวลอากาศ (MAF)', 'g/s', 0, 200, 1, b => (b[0] * 256 + b[1]) / 100],
+  [0x0F, 'อุณหภูมิไอดี', '°C', -40, 100, 0, b => b[0] - 40],
+  [0x0E, 'องศาจุดระเบิด', '°', -20, 60, 1, b => b[0] / 2 - 64],
+  [0x0A, 'แรงดันน้ำมันเชื้อเพลิง', 'kPa', 0, 765, 0, b => b[0] * 3],
+  [0x23, 'แรงดันรางน้ำมัน', 'kPa', 0, 200000, 0, b => (b[0] * 256 + b[1]) * 10],
+  [0x14, 'O2 เซนเซอร์ B1S1', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x15, 'O2 เซนเซอร์ B1S2', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x44, 'แลมบ์ดาที่สั่ง', 'λ', 0, 2, 2, b => (b[0] * 256 + b[1]) / 32768],
+  [0x2F, 'ระดับน้ำมันในถัง', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x2C, 'EGR ที่สั่ง', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x33, 'ความดันบรรยากาศ', 'kPa', 60, 110, 0, b => b[0]],
+  [0x46, 'อุณหภูมิอากาศภายนอก', '°C', -40, 60, 0, b => b[0] - 40],
+  [0x5C, 'อุณหภูมิน้ำมันเครื่อง', '°C', -40, 150, 0, b => b[0] - 40],
+  [0x49, 'ตำแหน่งคันเร่ง D', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x5E, 'อัตราสิ้นเปลืองเชื้อเพลิง', 'L/h', 0, 60, 1, b => (b[0] * 256 + b[1]) / 20],
+  [0x1F, 'เวลาตั้งแต่สตาร์ท', 's', 0, 65535, 0, b => b[0] * 256 + b[1]],
+  [0x21, 'ระยะทางที่ไฟเครื่องโชว์', 'km', 0, 65535, 0, b => b[0] * 256 + b[1]],
+  [0x31, 'ระยะทางหลังลบโค้ด', 'km', 0, 65535, 0, b => b[0] * 256 + b[1]],
+].map(([id, name, unit, min, max, dp, f]) => ({ id, name, unit, min, max, dp, f }));
+const PID_BY_ID = new Map(PIDS.map(p => [p.id, p]));
+
+/* Generic (SAE J2012) trouble-code meanings, in Thai */
+const DTC_DB = {
+  P0010: 'วงจรตัวปรับตำแหน่งเพลาลูกเบี้ยวไอดี (แบงก์ 1)', P0011: 'ไทมิ่งเพลาลูกเบี้ยวไอดีล่วงหน้าเกิน (แบงก์ 1)', P0012: 'ไทมิ่งเพลาลูกเบี้ยวไอดีล่าช้าเกิน (แบงก์ 1)',
+  P0016: 'ตำแหน่งเพลาข้อเหวี่ยงกับเพลาลูกเบี้ยวไม่สัมพันธ์กัน (แบงก์ 1 เซนเซอร์ A)',
+  P0030: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ (B1S1)', P0031: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ต่ำ (B1S1)', P0032: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์สูง (B1S1)',
+  P0036: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ (B1S2)', P0037: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ต่ำ (B1S2)', P0038: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์สูง (B1S2)',
+  P0087: 'แรงดันรางน้ำมันเชื้อเพลิงต่ำเกิน', P0088: 'แรงดันรางน้ำมันเชื้อเพลิงสูงเกิน',
+  P0100: 'วงจรเซนเซอร์มวลอากาศ (MAF)', P0101: 'เซนเซอร์ MAF ทำงานนอกช่วงปกติ', P0102: 'สัญญาณเซนเซอร์ MAF ต่ำ', P0103: 'สัญญาณเซนเซอร์ MAF สูง',
+  P0105: 'วงจรเซนเซอร์แรงดันท่อร่วมไอดี (MAP)', P0106: 'เซนเซอร์ MAP ทำงานนอกช่วงปกติ', P0107: 'สัญญาณเซนเซอร์ MAP ต่ำ', P0108: 'สัญญาณเซนเซอร์ MAP สูง',
+  P0110: 'วงจรเซนเซอร์อุณหภูมิไอดี (IAT)', P0112: 'สัญญาณเซนเซอร์อุณหภูมิไอดีต่ำ', P0113: 'สัญญาณเซนเซอร์อุณหภูมิไอดีสูง',
+  P0115: 'วงจรเซนเซอร์อุณหภูมิน้ำหล่อเย็น (ECT)', P0116: 'เซนเซอร์อุณหภูมิน้ำหล่อเย็นทำงานนอกช่วงปกติ', P0117: 'สัญญาณเซนเซอร์อุณหภูมิน้ำหล่อเย็นต่ำ', P0118: 'สัญญาณเซนเซอร์อุณหภูมิน้ำหล่อเย็นสูง',
+  P0120: 'วงจรเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ A', P0121: 'เซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ A ทำงานนอกช่วงปกติ', P0122: 'สัญญาณเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ A ต่ำ', P0123: 'สัญญาณเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ A สูง',
+  P0125: 'อุณหภูมิน้ำหล่อเย็นไม่ถึงเกณฑ์สำหรับการควบคุมเชื้อเพลิงแบบ closed loop', P0128: 'เทอร์โมสตัท: อุณหภูมิน้ำหล่อเย็นต่ำกว่าอุณหภูมิควบคุม',
+  P0130: 'วงจรออกซิเจนเซนเซอร์ (B1S1)', P0131: 'แรงดันออกซิเจนเซนเซอร์ต่ำ (B1S1)', P0132: 'แรงดันออกซิเจนเซนเซอร์สูง (B1S1)', P0133: 'ออกซิเจนเซนเซอร์ตอบสนองช้า (B1S1)', P0134: 'ออกซิเจนเซนเซอร์ไม่มีสัญญาณ (B1S1)', P0135: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ (B1S1)',
+  P0136: 'วงจรออกซิเจนเซนเซอร์ (B1S2)', P0137: 'แรงดันออกซิเจนเซนเซอร์ต่ำ (B1S2)', P0138: 'แรงดันออกซิเจนเซนเซอร์สูง (B1S2)', P0140: 'ออกซิเจนเซนเซอร์ไม่มีสัญญาณ (B1S2)', P0141: 'วงจรฮีตเตอร์ออกซิเจนเซนเซอร์ (B1S2)',
+  P0171: 'ส่วนผสมบางเกิน (แบงก์ 1)', P0172: 'ส่วนผสมหนาเกิน (แบงก์ 1)', P0174: 'ส่วนผสมบางเกิน (แบงก์ 2)', P0175: 'ส่วนผสมหนาเกิน (แบงก์ 2)',
+  P0190: 'วงจรเซนเซอร์แรงดันรางน้ำมัน', P0191: 'เซนเซอร์แรงดันรางน้ำมันทำงานนอกช่วงปกติ', P0192: 'สัญญาณเซนเซอร์แรงดันรางน้ำมันต่ำ', P0193: 'สัญญาณเซนเซอร์แรงดันรางน้ำมันสูง',
+  P0200: 'วงจรหัวฉีด', P0217: 'เครื่องยนต์ร้อนจัด', P0219: 'รอบเครื่องยนต์เกินกำหนด',
+  P0220: 'วงจรเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ/คันเร่ง B', P0222: 'สัญญาณเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ/คันเร่ง B ต่ำ', P0223: 'สัญญาณเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ/คันเร่ง B สูง',
+  P0230: 'วงจรปฐมภูมิของปั๊มเชื้อเพลิง', P0234: 'เทอร์โบ/ซูเปอร์ชาร์จ บูสต์เกิน', P0299: 'เทอร์โบ/ซูเปอร์ชาร์จ บูสต์ต่ำ',
+  P0300: 'ตรวจพบการจุดระเบิดผิดพลาดแบบสุ่มหลายสูบ',
+  P0325: 'วงจรน็อกเซนเซอร์ 1 (แบงก์ 1)', P0327: 'สัญญาณน็อกเซนเซอร์ 1 ต่ำ (แบงก์ 1)', P0328: 'สัญญาณน็อกเซนเซอร์ 1 สูง (แบงก์ 1)',
+  P0335: 'วงจรเซนเซอร์ตำแหน่งเพลาข้อเหวี่ยง A', P0336: 'เซนเซอร์ตำแหน่งเพลาข้อเหวี่ยง A ทำงานนอกช่วงปกติ', P0340: 'วงจรเซนเซอร์ตำแหน่งเพลาลูกเบี้ยว A (แบงก์ 1)', P0341: 'เซนเซอร์ตำแหน่งเพลาลูกเบี้ยว A ทำงานนอกช่วงปกติ (แบงก์ 1)',
+  P0400: 'การไหลของระบบ EGR ผิดปกติ', P0401: 'การไหลของ EGR ไม่เพียงพอ', P0402: 'การไหลของ EGR มากเกิน', P0403: 'วงจรควบคุม EGR', P0404: 'วงจรควบคุม EGR ทำงานนอกช่วงปกติ',
+  P0420: 'ประสิทธิภาพแคตตาไลติกต่ำกว่าเกณฑ์ (แบงก์ 1)', P0430: 'ประสิทธิภาพแคตตาไลติกต่ำกว่าเกณฑ์ (แบงก์ 2)',
+  P0440: 'ระบบควบคุมไอระเหยน้ำมัน (EVAP) ผิดปกติ', P0441: 'การไหลของ EVAP purge ไม่ถูกต้อง', P0442: 'ระบบ EVAP รั่ว (รอยรั่วเล็ก)', P0443: 'วงจรวาล์ว EVAP purge', P0446: 'วงจรควบคุมวาล์วระบาย EVAP', P0455: 'ระบบ EVAP รั่ว (รอยรั่วใหญ่)', P0456: 'ระบบ EVAP รั่ว (รอยรั่วเล็กมาก)',
+  P0460: 'วงจรเซนเซอร์ระดับน้ำมันเชื้อเพลิง', P0461: 'เซนเซอร์ระดับน้ำมันเชื้อเพลิงทำงานนอกช่วงปกติ', P0462: 'สัญญาณเซนเซอร์ระดับน้ำมันเชื้อเพลิงต่ำ', P0463: 'สัญญาณเซนเซอร์ระดับน้ำมันเชื้อเพลิงสูง',
+  P0480: 'วงจรควบคุมพัดลมหม้อน้ำ 1', P0481: 'วงจรควบคุมพัดลมหม้อน้ำ 2',
+  P0500: 'เซนเซอร์ความเร็วรถ A', P0501: 'เซนเซอร์ความเร็วรถ A ทำงานนอกช่วงปกติ',
+  P0505: 'ระบบควบคุมรอบเดินเบา', P0506: 'รอบเดินเบาต่ำกว่าที่ควรเป็น', P0507: 'รอบเดินเบาสูงกว่าที่ควรเป็น',
+  P0560: 'แรงดันไฟระบบผิดปกติ', P0562: 'แรงดันไฟระบบต่ำ', P0563: 'แรงดันไฟระบบสูง',
+  P0600: 'การสื่อสารแบบอนุกรมของกล่องควบคุม', P0601: 'หน่วยความจำกล่องควบคุมผิดพลาด (checksum)', P0603: 'หน่วยความจำ KAM ของกล่องควบคุมผิดพลาด', P0604: 'หน่วยความจำ RAM ของกล่องควบคุมผิดพลาด', P0605: 'หน่วยความจำ ROM ของกล่องควบคุมผิดพลาด', P0606: 'โปรเซสเซอร์กล่องควบคุมผิดปกติ',
+  P0620: 'วงจรควบคุมไดชาร์จ', P0627: 'วงจรควบคุมปั๊มเชื้อเพลิง A ขาด',
+  P0700: 'ระบบควบคุมเกียร์ขอให้เปิดไฟเตือน (มีโค้ดในกล่องเกียร์)', P0705: 'วงจรเซนเซอร์ตำแหน่งคันเกียร์', P0710: 'วงจรเซนเซอร์อุณหภูมิน้ำมันเกียร์ A', P0715: 'วงจรเซนเซอร์ความเร็วเพลาอินพุต/เทอร์ไบน์ A', P0720: 'วงจรเซนเซอร์ความเร็วเพลาเอาต์พุต',
+  P0730: 'อัตราทดเกียร์ไม่ถูกต้อง', P0740: 'วงจรคลัตช์ทอร์กคอนเวอร์เตอร์', P0741: 'คลัตช์ทอร์กคอนเวอร์เตอร์ทำงานไม่สมบูรณ์หรือค้างปลด', P0750: 'โซลินอยด์เปลี่ยนเกียร์ A', P0755: 'โซลินอยด์เปลี่ยนเกียร์ B',
+  P2002: 'ประสิทธิภาพกรองเขม่าดีเซล (DPF) ต่ำกว่าเกณฑ์ (แบงก์ 1)', P2463: 'เขม่าสะสมในกรองเขม่าดีเซล (DPF) มากเกิน',
+  P2101: 'วงจรมอเตอร์ลิ้นปีกผีเสื้อไฟฟ้าทำงานนอกช่วงปกติ', P2118: 'กระแสมอเตอร์ลิ้นปีกผีเสื้อไฟฟ้านอกช่วงปกติ',
+  P2122: 'สัญญาณเซนเซอร์ตำแหน่งคันเร่ง D ต่ำ', P2123: 'สัญญาณเซนเซอร์ตำแหน่งคันเร่ง D สูง', P2127: 'สัญญาณเซนเซอร์ตำแหน่งคันเร่ง E ต่ำ', P2128: 'สัญญาณเซนเซอร์ตำแหน่งคันเร่ง E สูง',
+  P2135: 'แรงดันเซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ A/B ไม่สัมพันธ์กัน', P2138: 'แรงดันเซนเซอร์ตำแหน่งคันเร่ง D/E ไม่สัมพันธ์กัน',
+  P2195: 'สัญญาณออกซิเจนเซนเซอร์ค้างด้านบาง (B1S1)', P2196: 'สัญญาณออกซิเจนเซนเซอร์ค้างด้านหนา (B1S1)', P2A00: 'วงจรออกซิเจนเซนเซอร์ทำงานนอกช่วงปกติ (B1S1)',
+  P0513: 'กุญแจ immobilizer ไม่ถูกต้อง', P0630: 'ยังไม่ได้บันทึก VIN ในกล่องเครื่องยนต์ หรือ VIN ไม่ตรงกัน', P0633: 'ยังไม่ได้ลงทะเบียนกุญแจ immobilizer ในกล่องเครื่องยนต์',
+  U0167: 'ขาดการสื่อสารกับกล่อง immobilizer', U0168: 'ขาดการสื่อสารกับกล่องระบบกันขโมย', U0426: 'ได้รับข้อมูลไม่ถูกต้องจากกล่อง immobilizer',
+  U0001: 'บัสสื่อสาร CAN ความเร็วสูง', U0073: 'บัสสื่อสารของกล่องควบคุม A หยุดทำงาน', U0100: 'ขาดการสื่อสารกับกล่องเครื่องยนต์ (ECM/PCM) A', U0101: 'ขาดการสื่อสารกับกล่องเกียร์ (TCM)', U0121: 'ขาดการสื่อสารกับกล่อง ABS', U0140: 'ขาดการสื่อสารกับกล่องควบคุมตัวถัง (BCM)', U0155: 'ขาดการสื่อสารกับเรือนไมล์',
+};
+/* standard codes that point at the immobilizer / key system */
+const IMMO_CODES = new Set(['P0513', 'P0630', 'P0633', 'U0167', 'U0168', 'U0426']);
+const IMMO_NAME = /immo|smart\s*key|keyless|pats|anti.?theft|security|กุญแจ|กันขโมย/i;
+function dtcInfo(code) {
+  const sys = { P: 'ระบบขับเคลื่อน', C: 'ช่วงล่าง', B: 'ตัวถัง', U: 'เครือข่าย' }[code[0]];
+  const maker = code[1] === '1' || (code[1] === '3' && code[2] < '4');
+  let d = DTC_DB[code], m;
+  if (!d && (m = code.match(/^P020([1-9A-C])$/))) d = 'วงจรหัวฉีดสูบ ' + parseInt(m[1], 16);
+  if (!d && (m = code.match(/^P030([1-9A-C])$/))) d = 'ตรวจพบการจุดระเบิดผิดพลาด สูบ ' + parseInt(m[1], 16);
+  if (!d && (m = code.match(/^P035([1-9A-C])$/))) d = 'วงจรคอยล์จุดระเบิด ' + 'ABCDEFGHIJKL'[parseInt(m[1], 16) - 1] + ' (ปฐมภูมิ/ทุติยภูมิ)';
+  if (!d && (m = code.match(/^P073([1-6])$/))) d = 'อัตราทดเกียร์ ' + m[1] + ' ไม่ถูกต้อง';
+  let known = !!d;
+  if (!d) {
+    if (maker) d = 'โค้ดเฉพาะยี่ห้อ ความหมายขึ้นกับผู้ผลิตรถ';
+    else if (code[0] === 'P') {
+      const g = code[2];
+      d = 'ไม่มีคำอธิบายในแอป อยู่ในกลุ่ม' + (
+        '012'.includes(g) ? 'การจ่ายเชื้อเพลิงและอากาศ' : g === '3' ? 'ระบบจุดระเบิด' : g === '4' ? 'ระบบควบคุมไอเสีย' :
+        g === '5' ? 'ความเร็วรถและรอบเดินเบา' : g === '6' ? 'กล่องควบคุมและวงจรเอาต์พุต' : 'ระบบเกียร์');
+    } else d = 'ไม่มีคำอธิบายในแอป';
+  }
+  return { sys, maker, desc: d, known };
+}
+
+/* Brands: recognised from the VIN's first three characters. A module-name map is included only where I am sure of it;
+   brands without one show modules by address and let the user name them. */
+const FORD_MAP = { 0x7E0: 'เครื่องยนต์ (PCM)', 0x7E1: 'เกียร์ (TCM)', 0x760: 'ABS / ควบคุมการทรงตัว', 0x737: 'ถุงลมนิรภัย (RCM)', 0x720: 'เรือนไมล์', 0x726: 'ตัวถัง (BCM)', 0x730: 'พวงมาลัยไฟฟ้า' };
+const BRANDS = [
+  { key: 'toyota', name: 'Toyota', wmi: /^(JT|MR0|MR2|MHF|4T|5T|2T|SB1|VNK|6T1|8AJ|AHT)/,
+    map: { 0x7E0: 'เครื่องยนต์', 0x7E1: 'เกียร์', 0x7B0: 'ABS / ควบคุมการทรงตัว', 0x780: 'ถุงลมนิรภัย (SRS)', 0x7A1: 'พวงมาลัยไฟฟ้า (EPS)', 0x7C0: 'เรือนไมล์', 0x7C4: 'ระบบปรับอากาศ', 0x750: 'ตัวถังหลัก' },
+    note: 'กล่องตัวถังของ Toyota หลายรุ่นอยู่หลังที่อยู่ 750 และใช้ที่อยู่ย่อย แอปยังอ่านกลุ่มนี้ไม่ได้' },
+  { key: 'ford', name: 'Ford', wmi: /^(1F|2F|3F|WF0|MNA|MNB|MNC|MPB|6FP|MAJ)/, map: FORD_MAP,
+    note: 'กล่องตัวถังของ Ford บางรุ่นอยู่บน MS-CAN (ขา 3 และ 11) ซึ่ง OpenPort 2.0 และ ELM327 ทั่วไปเข้าไม่ถึง' },
+  { key: 'mazda', name: 'Mazda', wmi: /^(JM[0-9Z]|MM[0-9]|3MZ|4F2)/, map: FORD_MAP,
+    note: 'ชื่อกล่องใช้ผังเดียวกับ Ford ซึ่ง Mazda ใช้ร่วมกันในหลายรุ่น ตรวจกับหมายเลขชิ้นส่วนอีกครั้ง กล่องตัวถังบางรุ่นอยู่บน MS-CAN ซึ่งสายนี้เข้าไม่ถึง' },
+  { key: 'isuzu', name: 'Isuzu', wmi: /^(MPA|MP1|JAA|JAL|JAN|JAM)/, map: {},
+    note: 'แอปยังไม่มีผังชื่อกล่องของ Isuzu ดูหมายเลขชิ้นส่วนแล้วกด “ตั้งชื่อ” ได้ แอปจะจำชื่อไว้ใช้กับ Isuzu คันต่อไป' },
+  { key: 'mitsubishi', name: 'Mitsubishi', wmi: /^(MM[A-Z]|JA[347]|JMB|JMY|JMP)/, map: {},
+    note: 'แอปยังไม่มีผังชื่อกล่องของ Mitsubishi ดูหมายเลขชิ้นส่วนแล้วกด “ตั้งชื่อ” ได้ แอปจะจำชื่อไว้ใช้กับ Mitsubishi คันต่อไป' },
+];
+function brandOf(vin) { const b = BRANDS.find(x => x.wmi.test(vin || '')); return b ? b.key : ''; }
+function modName(id, brandKey, ext) {
+  const b = BRANDS.find(x => x.key === brandKey);
+  if (!ext && b && b.map[id]) return { name: b.map[id], brand: b.name };
+  if (!ext && id === 0x7E0) return { name: 'เครื่องยนต์', brand: '' };
+  if (!ext && id === 0x7E1) return { name: 'เกียร์', brand: '' };
+  return { name: '', brand: '' };
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { NativeTransport, IMMO_CODES, IMMO_NAME, modName, brandOf, BRANDS, Elm, OpenPort, DemoTransport, b2s, s2b, hex, PIDS, PID_BY_ID, dtcInfo, dtcCode };
+
+/* ---------- UI ---------- */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const OP_PIDS = [0xCC4C, 0xCC4D];
+const FREEZE_PIDS = [0x0C, 0x0D, 0x05, 0x04, 0x11, 0x06, 0x07, 0x0B, 0x10, 0x0F, 0x0E];
+const S = { elm: null, t: null, kind: null, info: {}, supported: new Set(), dtc: null, ready: null, freeze: null, scanAt: null,
+  mods: null, modStop: false, modClearId: null, modNameId: null, brandPick: '',
+  sel: new Set([0x0C, 0x0D, 0x05, 0x04, 0x11, 0x42]), hist: new Map(), live: false, logs: [], busy: false, wake: null };
+
+function log(dir, text) {
+  S.logs.push((dir === 'tx' ? '> ' : dir === 'er' ? '! ' : '  ') + text);
+  if (S.logs.length > 600) S.logs.shift();
+  const el = $('term'), d = document.createElement('div');
+  d.className = dir; d.textContent = (dir === 'tx' ? '> ' : dir === 'er' ? '! ' : '  ') + text;
+  el.appendChild(d);
+  while (el.childNodes.length > 400) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+function setStatus(kind, text) { $('dot').className = 'dot ' + kind; $('statusText').textContent = text; }
+function showMsg(id, text, err) { const el = $(id); el.hidden = !text; el.textContent = text || ''; el.className = 'msg' + (err ? ' err' : ''); }
+function explain(e) {
+  const m = String((e && e.message) || e), n = e && e.name;
+  if (n === 'NotFoundError') return 'ยังไม่ได้เลือกอุปกรณ์';
+  if (n === 'SecurityError' || /permissions policy|not allowed/i.test(m)) return 'หน้านี้เปิดอยู่ในกรอบที่ปิดการเข้าถึง Bluetooth และ USB ให้เปิดแอปจากที่อยู่ https โดยตรงใน Chrome แล้วลองอีกครั้ง';
+  if (m === 'BT_PERM') return 'อนุญาตให้แอปใช้อุปกรณ์ที่อยู่ใกล้เคียง (Bluetooth) แล้วกดปุ่มอีกครั้ง';
+  if (m === 'BT_OFF') return 'Bluetooth ปิดอยู่ เปิด Bluetooth แล้วลองอีกครั้ง';
+  if (m === 'BT_NONE') return 'เครื่องนี้ไม่มี Bluetooth';
+  if (m === 'BT_EMPTY') return 'ยังไม่มีอุปกรณ์ที่จับคู่ไว้ ไปที่ตั้งค่า Bluetooth ของมือถือ จับคู่กับหัว ELM327 (PIN 1234 หรือ 0000) แล้วกลับมากดอีกครั้ง';
+  if (m === 'USB_EMPTY') return 'ไม่พบสาย FTDI หรือ OpenPort เสียบสายผ่านหัวแปลง OTG แล้วลองอีกครั้ง';
+  if (m === 'USB_DENIED') return 'ยังไม่ได้อนุญาตให้แอปใช้สาย USB กดปุ่มอีกครั้งแล้วเลือกอนุญาต';
+  if (m === 'USB_NO_ENDPOINT' || m === 'USB_OPEN') return 'เปิดสาย USB ไม่ได้ ถอดแล้วเสียบใหม่ หรือปิดแอปอื่นที่ใช้สายนี้อยู่';
+  if (/socket|read failed|connect/i.test(m) && NAT) return 'ต่อ Bluetooth กับหัวสแกนไม่ได้ ตรวจว่าหัวเสียบกับรถและไฟติด และไม่มีแอปอื่นต่ออยู่ (' + m + ')';
+  if (m === 'NO_SERIAL') return 'เบราว์เซอร์นี้ต่อ Bluetooth แบบ serial ไม่ได้ ใช้ Chrome บน Android รุ่น 138 ขึ้นไป หรือ Chrome/Edge บนคอมพิวเตอร์';
+  if (m === 'NO_USB') return 'เบราว์เซอร์นี้ต่อ USB ไม่ได้ ใช้ Chrome บน Android หรือบนคอมพิวเตอร์';
+  if (m === 'NO_ADAPTER') return 'หัวสแกนไม่ตอบที่ความเร็ว 38400, 115200, 9600 และ 57600 ตรวจว่าเสียบหัวกับรถแล้วและไฟที่หัวติด';
+  if (m === 'NOT_FTDI' || m === 'NO_BULK') return 'อุปกรณ์ USB นี้ไม่ใช่สายที่แอปรู้จัก';
+  if (m === 'NO_ECU') return 'ต่อกับหัวสแกนได้ แต่ ECU ไม่ตอบ ตรวจว่าเสียบหัวแน่นและบิดกุญแจไปที่ ON แล้ว' + (e.detail ? ' (' + e.detail + ')' : '');
+  if (m === 'NOT_CAN') return 'รถคันนี้ไม่ได้ใช้ CAN แอปยังสแกนกล่องอื่นของรถแบบนี้ไม่ได้';
+  if (m === 'NO_FILTER') return 'หัว ELM327 ตัวนี้ไม่รองรับคำสั่งกรอง CAN (ATCF/ATCM) จึงสแกนกล่องอื่นไม่ได้ หัว clone บางรุ่นเป็นแบบนี้';
+  if (m === 'TIMEOUT') return 'หัวสแกนไม่ตอบภายในเวลาที่กำหนด';
+  if (n === 'NetworkError') return 'เปิดพอร์ตไม่ได้ อาจมีแอปอื่นใช้หัวสแกนอยู่ หรือหัวอยู่ไกลเกินไป';
+  return m;
+}
+
+async function probeElm(t) {
+  const bauds = t.noBaud ? [38400] : [38400, 115200, 9600, 57600];   // Bluetooth has no baud rate to guess
+  for (let b = 0; b < bauds.length; b++) {
+    if (b && t.reopen) await t.reopen(bauds[b]); else await t.open(bauds[b]);
+    const elm = new Elm(t, log);
+    for (let i = 0; i < (t.noBaud ? 3 : 2); i++) {
+      try { const r = await elm.cmd('ATI', 1500); if (r.some(l => /ELM|OBD|STN|OK|\?/i.test(l))) return elm; } catch (e) { if (e.message !== 'TIMEOUT') throw e; }
+    }
+    if (!t.reopen || b === bauds.length - 1) await t.close();
+  }
+  throw new Error('NO_ADAPTER');
+}
+/* in-page device chooser for the Android app */
+function pickDevice(title, list) {
+  return new Promise((res, rej) => {
+    const box = $('picker');
+    box.innerHTML = '<b>' + esc(title) + '</b>' + list.map((d, i) => '<button class="btn" data-i="' + i + '">' + esc(d.label) + (d.sub ? '<small class="mono">' + esc(d.sub) + '</small>' : '') + '</button>').join('') + '<button class="btn" data-i="-1">ยกเลิก</button>';
+    box.hidden = false;
+    box.onclick = e => { const b = e.target.closest('button'); if (!b) return; box.hidden = true; box.onclick = null; const i = +b.dataset.i; i < 0 ? rej(Object.assign(new Error('x'), { name: 'NotFoundError' })) : res(list[i]); };
+  });
+}
+async function nativeBt() {
+  const r = Android.btList();
+  if (r === 'PERM') throw new Error('BT_PERM');
+  if (r === 'OFF') throw new Error('BT_OFF');
+  if (r === 'NONE') throw new Error('BT_NONE');
+  const list = JSON.parse(r).map(d => ({ label: d.name || 'ไม่มีชื่อ', sub: d.addr, addr: d.addr }));
+  if (!list.length) throw new Error('BT_EMPTY');
+  return pickDevice('เลือกหัวสแกนที่จับคู่ไว้', list);
+}
+async function nativeUsb() {
+  const list = JSON.parse(Android.usbList()).filter(d => d.vid === 0x0403).map(d => ({ label: OP_PIDS.includes(d.pid) ? 'Tactrix OpenPort 2.0' : (d.name || 'สาย FTDI'), sub: 'USB ' + hex(d.vid, 4) + ':' + hex(d.pid, 4), id: d.id, pid: d.pid }));
+  if (!list.length) throw new Error('USB_EMPTY');
+  return list.length === 1 ? list[0] : pickDevice('เลือกสาย USB', list);
+}
+
+async function disconnect(silent) {
+  stopLive();
+  const { elm, t } = S;
+  S.elm = null; S.t = null;
+  if (elm) await elm.shutdown().catch(() => {});
+  if (t) { t.onLost = null; await t.close().catch(() => {}); }
+  if (!silent) { S.kind = null; S.info = {}; S.supported = new Set(); S.dtc = S.ready = S.freeze = S.scanAt = S.mods = null; setStatus('', 'ยังไม่ได้เชื่อมต่อ'); renderAll(); }
+}
+
+async function connect(kind) {
+  if (S.busy) return;
+  S.busy = true;
+  let t = null;
+  try {
+    await disconnect(true);
+    S.kind = null; S.info = {}; S.supported = new Set(); S.dtc = S.ready = S.freeze = S.scanAt = S.mods = null; renderAll();
+    showMsg('connMsg', '');
+    setStatus('busy', 'กำลังเชื่อมต่อหัวสแกน');
+    let elm;
+    if (kind === 'demo') { t = new DemoTransport(); await t.open(); elm = new Elm(t, log); }
+    else if (kind === 'serial' && NAT) { t = new NativeTransport('bt', await nativeBt()); setStatus('busy', 'กำลังต่อ Bluetooth'); elm = await probeElm(t); }
+    else if (kind === 'usb' && NAT) {
+      const dev = await nativeUsb();
+      if (OP_PIDS.includes(dev.pid)) { t = new NativeTransport('bulk', dev); await t.open(); elm = new OpenPort(t, log); }
+      else { t = new NativeTransport('ftdi', dev); elm = await probeElm(t); }
+    }
+    else if (kind === 'serial') {
+      if (!navigator.serial) throw new Error('NO_SERIAL');
+      const port = await navigator.serial.requestPort();
+      const inf = port.getInfo ? port.getInfo() : {};
+      t = new SerialTransport(port);
+      if (inf.usbVendorId === 0x0403 && OP_PIDS.includes(inf.usbProductId)) { await t.open(115200); elm = new OpenPort(t, log); }
+      else elm = await probeElm(t);
+    } else {
+      if (!navigator.usb) throw new Error('NO_USB');
+      const dev = await navigator.usb.requestDevice({ filters: [{ vendorId: 0x0403 }] });
+      if (OP_PIDS.includes(dev.productId)) { t = new UsbBulkTransport(dev); await t.open(); elm = new OpenPort(t, log); }
+      else { t = new FtdiTransport(dev); elm = await probeElm(t); }
+    }
+    setStatus('busy', 'กำลังค้นหา ECU');
+    await elm.init();
+    S.elm = elm; S.t = t; S.kind = kind;
+    t.onLost = () => { log('er', 'การเชื่อมต่อหลุด'); S.elm = null; S.t = null; stopLive(); setStatus('err', 'การเชื่อมต่อหลุด'); renderAll(); };
+    S.info = { adapter: elm.adapter, proto: elm.protoName, volt: await elm.voltage() };
+    S.supported = await elm.supported();
+    S.info.vin = await elm.vin().catch(() => '');
+    for (const id of [...S.sel]) if (S.supported.size && !S.supported.has(id)) S.sel.delete(id);
+    renderAll();
+    S.busy = false;
+    await scanAll();
+  } catch (e) {
+    log('er', String((e && e.message) || e));
+    if (t) await t.close().catch(() => {});
+    S.elm = null; S.t = null;
+    setStatus('err', 'เชื่อมต่อไม่สำเร็จ'); showMsg('connMsg', explain(e), true); renderAll();
+  } finally { S.busy = false; }
+}
+
+/* wrap an action that needs a live connection */
+async function act(msgId, label, fn) {
+  if (S.busy) return;
+  if (!S.elm) { showMsg(msgId, 'ยังไม่ได้เชื่อมต่อหัวสแกน ไปที่แท็บภาพรวมเพื่อเชื่อมต่อก่อน', true); return; }
+  S.busy = true; showMsg(msgId, '');
+  const wasLive = S.live; stopLive();
+  setStatus('busy', label);
+  try { await fn(S.elm); setStatus('on', statusLine()); }
+  catch (e) { log('er', String((e && e.message) || e)); showMsg(msgId, explain(e), true); setStatus(S.elm ? 'on' : 'err', S.elm ? statusLine() : 'การเชื่อมต่อหลุด'); }
+  finally { S.busy = false; renderAll(); if (wasLive && S.elm) startLive(); }
+}
+const statusLine = () => (S.kind === 'demo' ? 'รถตัวอย่าง' : 'เชื่อมต่อแล้ว') + ' · ' + (S.info.proto || '');
+
+async function readDtcs(e) {
+  S.dtc = { stored: await e.dtcs('03'), pending: await e.dtcs('07').catch(() => []), perm: await e.dtcs('0A').catch(() => []) };
+}
+async function readFreeze(e) {
+  const d = await e.pid(2, 2).catch(() => null);
+  if (!d || d.length < 2 || (!d[0] && !d[1])) { S.freeze = { code: null, rows: [] }; return; }
+  const rows = [];
+  for (const id of FREEZE_PIDS) {
+    if (S.supported.size && !S.supported.has(id)) continue;
+    const b = await e.pid(id, 2).catch(() => null), p = PID_BY_ID.get(id);
+    if (b && b.length) rows.push({ p, v: p.f(b) });
+  }
+  S.freeze = { code: dtcCode(d[0], d[1]), rows };
+}
+function scanAll() {
+  return act('connMsg', 'กำลังสแกน', async e => {
+    await readDtcs(e);
+    S.ready = await e.readiness().catch(() => null);
+    await readFreeze(e);
+    S.info.volt = await e.voltage();
+    S.scanAt = new Date();
+    saveHistory();
+  });
+}
+
+/* scan every diagnostic address for modules and read their codes */
+function scanModules() {
+  return act('modMsg', 'กำลังสแกนกล่องอื่น', async e => {
+    const ids = e.modIds(), found = [];
+    S.modStop = false; S.mods = null; S.modClearId = null;
+    $('modProg').hidden = false; $('btnModStop').hidden = false; $('modBar').style.width = '0';
+    await e.modBegin();
+    try {
+      for (let i = 0; i < ids.length && !S.modStop; i++) {
+        const r = await e.modRead(ids[i]).catch(err => { if (!S.elm) throw err; return null; });
+        if (r) { r.info = await e.modInfo(ids[i]).catch(() => ({})); found.push(r); S.mods = found.slice(); renderMods(); }
+        if (i % 4 === 0) { $('modBar').style.width = (i / ids.length * 100) + '%'; setStatus('busy', 'กำลังสแกนกล่องอื่น ' + Math.round(i / ids.length * 100) + '%'); }
+      }
+    } finally { await e.modEnd().catch(() => {}); $('modProg').hidden = true; $('btnModStop').hidden = true; }
+    S.mods = found;
+    if (S.modStop) showMsg('modMsg', 'หยุดสแกนก่อนครบ ผลด้านล่างเป็นเฉพาะที่อยู่ที่ถามไปแล้ว');
+  });
+}
+function clearModule(id) {
+  const m = (S.mods || []).find(x => x.id === id); if (!m) return;
+  S.modClearId = null;
+  return act('modMsg', 'กำลังลบโค้ดของกล่อง', async e => {
+    await e.modBegin();
+    let ok = false, again = null;
+    try { ok = await e.modClear(id, m.proto); again = await e.modRead(id); } finally { await e.modEnd().catch(() => {}); }
+    if (again) Object.assign(m, again);
+    showMsg('modMsg', ok ? (m.dtcs.length ? 'กล่องยืนยันการลบ แต่ยังมีโค้ดกลับมา แปลว่าอาการยังอยู่' : 'กล่องยืนยันว่าลบโค้ดแล้ว') : 'กล่องไม่ยอมลบโค้ด บางกล่องต้องดับเครื่องหรือใช้เครื่องมือของยี่ห้อ', !ok);
+  });
+}
+const curBrand = () => S.brandPick || brandOf(S.info.vin);
+function loadNames() { try { return JSON.parse(localStorage.getItem('obdps.names') || '{}'); } catch (e) { return {}; } }
+function saveName(addr, name) {
+  const all = loadNames(), k = curBrand() || 'other';
+  all[k] = all[k] || {};
+  if (name) all[k][addr] = name; else delete all[k][addr];
+  try { localStorage.setItem('obdps.names', JSON.stringify(all)); } catch (e) {}
+}
+function modLabel(m) {
+  const ext = S.elm ? S.elm.ext29 : false, addr = ext ? hex(m.id) : hex(m.id, 3);
+  const mine = (loadNames()[curBrand() || 'other'] || {})[addr];
+  if (mine) return { addr, name: mine, src: 'ชื่อที่คุณตั้ง' };
+  const n = modName(m.id, curBrand(), ext);
+  return { addr, name: n.name || 'กล่องที่แอปยังไม่รู้ชื่อ', src: n.brand ? 'ตามผังของ ' + n.brand : '' };
+}
+function renderMods() {
+  const el = $('modList'), list = S.mods, bk = curBrand(), bd = BRANDS.find(x => x.key === bk);
+  $('brandSel').value = S.brandPick;
+  $('brandAuto').textContent = 'อัตโนมัติ' + (brandOf(S.info.vin) ? ' (' + BRANDS.find(x => x.key === brandOf(S.info.vin)).name + ')' : '');
+  $('brandNote').hidden = !(bd && list && list.length); $('brandNote').textContent = bd ? bd.note : '';
+  if (!list) { el.innerHTML = '<p class="empty">ยังไม่ได้สแกน</p>'; return; }
+  if (!list.length) { el.innerHTML = '<p class="empty">ยังไม่พบกล่องที่ตอบ</p>'; return; }
+  el.innerHTML = list.map(m => {
+    const L = modLabel(m), n = m.dtcs.length;
+    const pill = (isImmoMod(m) ? '<span class="pill warn">immobilizer</span>' : '') + !m.proto ? '<span class="pill">อ่านโค้ดไม่ได้</span>' : n ? '<span class="pill bad">' + n + ' โค้ด</span>' : '<span class="pill ok">ไม่มีโค้ด</span>';
+    const codes = m.dtcs.map(d => {
+      const inf = dtcInfo(d.base), st = [];
+      if (d.status & 0x01) st.push('<span class="pill bad">เกิดอยู่ตอนนี้</span>');
+      if (d.status & 0x08) st.push('<span class="pill bad">ยืนยันแล้ว</span>');
+      if ((d.status & 0x04) && !(d.status & 0x08)) st.push('<span class="pill warn">รอยืนยัน</span>');
+      if (d.status & 0x80) st.push('<span class="pill warn">สั่งไฟเตือน</span>');
+      return '<div class="dtc"><span class="code">' + esc(d.code) + '</span><span class="desc">' + esc(inf.desc) + '</span><span class="meta">' + st.join('') + immoPill(d.base) + '<span>' + esc(inf.sys) + '</span></span></div>';
+    }).join('');
+    const inf = m.info || {}, idl = [inf.system, inf.part && 'ชิ้นส่วน ' + inf.part, inf.supplier && 'ผู้ผลิต ' + inf.supplier, m.ecu && 'ตอบที่ ' + m.ecu].filter(Boolean).join(' · ');
+    const ident = idl ? '<p class="muted mono" style="font-size:12.5px;overflow-wrap:anywhere">' + esc(idl) + '</p>' : '';
+    const note = !m.proto ? '<p class="muted" style="font-size:13px">กล่องนี้ตอบ แต่ไม่รับคำสั่งอ่านโค้ดมาตรฐาน (ตอบปฏิเสธ ' + hex(m.nrc || 0) + ') ต้องใช้คำสั่งเฉพาะยี่ห้อ</p>' : '';
+    const clr = m.proto && n ? (S.modClearId === m.id
+      ? '<div class="confirm"><b>ลบโค้ดของกล่อง ' + L.addr + '?</b><span class="muted">การลบไม่ได้ซ่อมอาการ ถ้าเป็นกล่องถุงลมหรือ ABS ให้ซ่อมและตรวจให้เสร็จก่อน โค้ดที่ยังมีอาการอยู่จะกลับมาทันที</span><div class="row"><button class="btn danger solid sm" data-yes="' + m.id + '">ลบโค้ด</button><button class="btn sm" data-no="1">ยกเลิก</button></div></div>'
+      : '<div class="row"><button class="btn danger sm" data-clr="' + m.id + '">ลบโค้ดกล่องนี้</button></div>') : '';
+    const nm = S.modNameId === m.id
+      ? '<form class="termin" data-name="' + L.addr + '"><input id="modNameIn" value="' + esc(L.src === 'ชื่อที่คุณตั้ง' ? L.name : '') + '" placeholder="ชื่อกล่อง เช่น ABS" aria-label="ชื่อกล่อง" style="text-transform:none;font-family:inherit"><button class="btn primary sm" type="submit">บันทึก</button></form>'
+      : '<div class="row"><button class="btn sm" data-ren="' + m.id + '">ตั้งชื่อ</button></div>';
+    return '<div class="mod"><div class="mod-h"><span class="addr">' + L.addr + '</span><span class="nm">' + esc(L.name) + (L.src ? ' <span class="src">' + esc(L.src) + '</span>' : '') + '</span>' + pill + '</div>' + ident + note + codes + nm + clr + '</div>';
+  }).join('');
+}
+
+/* ---------- rendering ---------- */
+function fmt(p, v) { return v.toFixed(p.dp); }
+function renderFacts() {
+  const i = S.info, c = S.dtc, on = !!S.elm;
+  const mil = S.ready ? (S.ready.mil ? 'ติด' : 'ดับ') : '—';
+  const rows = [
+    ['VIN', on ? (i.vin || 'รถไม่ส่ง VIN') : '—'],
+    ['ยี่ห้อ', on ? ((BRANDS.find(x => x.key === curBrand()) || {}).name || 'ไม่รู้จักจาก VIN') : '—'],
+    ['โปรโตคอล', i.proto || '—'],
+    ['แรงดันแบตเตอรี่', i.volt != null ? i.volt.toFixed(1) + ' V' : '—'],
+    ['ไฟเตือนเครื่องยนต์', mil],
+    ['โค้ดค้าง / รอยืนยัน', c ? c.stored.length + ' / ' + c.pending.length : '—'],
+    ['ค่าสดที่รถรองรับ', on ? PIDS.filter(p => S.supported.has(p.id)).length + ' ค่า' : '—'],
+    ['หัวสแกน', i.adapter || '—'],
+  ];
+  $('facts').innerHTML = rows.map(([k, v]) => '<div class="fact"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('');
+  $('lamp').className = 'lamp' + (S.ready && S.ready.mil ? ' lit' : '');
+  $('demoNote').hidden = S.kind !== 'demo';
+  $('btnDisc').hidden = !on;
+}
+const immoPill = c => (IMMO_CODES.has(c) ? '<span class="pill warn">immobilizer</span>' : '');
+const isImmoMod = m => IMMO_NAME.test(modLabel(m).name + ' ' + ((m.info && m.info.system) || ''));
+function renderImmo() {
+  const el = $('immoBox'), c = S.dtc, hits = [];
+  if (!c && !S.mods) { el.innerHTML = '<p class="empty">ยังไม่มีผลสแกน</p>'; return; }
+  if (c) [...c.stored, ...c.pending, ...c.perm].forEach(d => { if (IMMO_CODES.has(d.code)) hits.push({ code: d.code, where: 'เครื่องยนต์/เกียร์' }); });
+  (S.mods || []).forEach(m => m.dtcs.forEach(d => { if (IMMO_CODES.has(d.base) && !hits.some(x => x.code === d.base)) hits.push({ code: d.base, where: 'กล่อง ' + modLabel(m).addr }); }));
+  const mods = (S.mods || []).filter(isImmoMod);
+  let out = hits.length
+    ? hits.map(x => '<div class="dtc"><span class="code">' + esc(x.code) + '</span><span class="desc">' + esc(dtcInfo(x.code).desc) + '</span><span class="meta"><span>พบที่ ' + esc(x.where) + '</span></span></div>').join('')
+    : '<p class="row"><span class="pill ok">ไม่พบ</span> ไม่มีโค้ดมาตรฐานที่ชี้ไปที่กุญแจหรือ immobilizer</p>';
+  if (!S.mods) out += '<p class="muted" style="font-size:13px">ยังไม่ได้สแกนกล่องอื่น ผลนี้มาจากกล่องเครื่องยนต์และเกียร์เท่านั้น</p>';
+  else if (mods.length) out += mods.map(m => { const L = modLabel(m); return '<p style="font-size:14px">กล่องระบบกุญแจ: <span class="mono">' + L.addr + '</span> ' + esc(L.name) + ' มี ' + (m.proto ? m.dtcs.length + ' โค้ด' : 'โค้ดที่อ่านไม่ได้') + '</p>'; }).join('');
+  else out += '<p class="muted" style="font-size:13px">แอปยังระบุไม่ได้ว่ากล่องไหนเป็นกล่อง immobilizer ถ้ารู้จากหมายเลขชิ้นส่วน ให้ตั้งชื่อกล่องนั้นโดยมีคำว่า immobilizer หรือ กุญแจ</p>';
+  el.innerHTML = out;
+}
+function dtcRows(list, pill, cls) {
+  return list.map(d => {
+    const inf = dtcInfo(d.code);
+    return '<div class="dtc"><span class="code">' + esc(d.code) + '</span><span class="desc">' + esc(inf.desc) + '</span>' +
+      '<span class="meta"><span class="pill ' + cls + '">' + pill + '</span>' + immoPill(d.code) + '<span>' + esc(inf.sys) + '</span><span class="mono">ECU ' + esc(d.ecu) + '</span></span></div>';
+  }).join('');
+}
+function renderDtc() {
+  const c = S.dtc, n = c ? c.stored.length + c.pending.length + c.perm.length : 0;
+  $('tabDtc').textContent = c ? String(c.stored.length + c.pending.length) : '';
+  if (!c) { $('dtcList').innerHTML = '<p class="empty">ยังไม่ได้อ่านโค้ด กด “อ่านโค้ด” หลังเชื่อมต่อกับรถ</p>'; return; }
+  if (!n) { $('dtcList').innerHTML = '<p class="row"><span class="pill ok">ปกติ</span> ไม่พบโค้ดปัญหาในกล่องเครื่องยนต์และเกียร์</p>'; return; }
+  $('dtcList').innerHTML = dtcRows(c.stored, 'ค้างอยู่', 'bad') + dtcRows(c.pending, 'รอยืนยัน', 'warn') + dtcRows(c.perm, 'ถาวร', '');
+}
+function renderReady() {
+  const r = S.ready;
+  if (!r) { $('readyList').innerHTML = '<p class="empty">ยังไม่มีข้อมูล</p>'; }
+  else {
+    const done = r.mons.filter(m => m.done).length;
+    $('readyList').innerHTML = '<p class="muted" style="font-size:13px;margin-bottom:6px">เครื่องยนต์' + (r.diesel ? 'ดีเซล' : 'เบนซิน') + ' ตรวจครบ ' + done + ' จาก ' + r.mons.length + ' ระบบ</p>' +
+      r.mons.map(m => '<div class="mon"><span>' + esc(m.name) + '</span><span class="pill ' + (m.done ? 'ok">ครบ' : 'warn">ยังไม่ครบ') + '</span></div>').join('');
+  }
+  const f = S.freeze;
+  if (!f) $('freezeBox').innerHTML = '<p class="empty">ยังไม่มีข้อมูล</p>';
+  else if (!f.code) $('freezeBox').innerHTML = '<p class="empty">ECU ไม่ได้บันทึก freeze frame ไว้</p>';
+  else $('freezeBox').innerHTML = '<table><tr><th>บันทึกเมื่อเกิดโค้ด</th><td class="num"><b>' + esc(f.code) + '</b></td></tr>' +
+    f.rows.map(r => '<tr><td>' + esc(r.p.name) + '</td><td class="num">' + fmt(r.p, r.v) + ' ' + esc(r.p.unit) + '</td></tr>').join('') + '</table>';
+}
+function buildReport() {
+  const i = S.info, c = S.dtc, L = [];
+  if (!S.elm && !c) return 'ยังไม่มีผลสแกน เชื่อมต่อหัวสแกนแล้วกด “สแกนทั้งคัน”';
+  if (S.kind === 'demo') L.push('[ข้อมูลตัวอย่าง ไม่ได้มาจากรถจริง]');
+  L.push('รายงานผลสแกน OBD-II');
+  if (S.scanAt) L.push('วันที่: ' + S.scanAt.toLocaleString('th-TH'));
+  { const b = BRANDS.find(x => x.key === curBrand()); if (b) L.push('ยี่ห้อ: ' + b.name); }
+  L.push('VIN: ' + (i.vin || '-'), 'โปรโตคอล: ' + (i.proto || '-'));
+  if (i.volt != null) L.push('แรงดันแบตเตอรี่: ' + i.volt.toFixed(1) + ' V');
+  if (S.ready) L.push('ไฟเตือนเครื่องยนต์: ' + (S.ready.mil ? 'ติด' : 'ดับ'));
+  if (c) {
+    const sec = (title, list) => { L.push('', title + ' (' + list.length + ')'); list.forEach(d => L.push('  ' + d.code + '  ' + dtcInfo(d.code).desc)); if (!list.length) L.push('  ไม่พบ'); };
+    sec('โค้ดค้าง', c.stored); sec('โค้ดรอยืนยัน', c.pending); if (c.perm.length) sec('โค้ดถาวร', c.perm);
+  }
+  if (S.mods && S.mods.length) {
+    L.push('', 'กล่องอื่นในรถ (' + S.mods.length + ')');
+    S.mods.forEach(m => { const l = modLabel(m); L.push('  ' + l.addr + ' ' + l.name + (m.info && m.info.part ? ' [' + m.info.part + ']' : '') + ': ' + (!m.proto ? 'อ่านโค้ดไม่ได้' : m.dtcs.length ? m.dtcs.map(d => d.code).join(' ') : 'ไม่มีโค้ด')); });
+  }
+  if (S.freeze && S.freeze.code) { L.push('', 'Freeze frame ของ ' + S.freeze.code); S.freeze.rows.forEach(r => L.push('  ' + r.p.name + ': ' + fmt(r.p, r.v) + ' ' + r.p.unit)); }
+  if (S.ready) {
+    const nd = S.ready.mons.filter(m => !m.done).map(m => m.name);
+    L.push('', 'ความพร้อมตรวจมลพิษ: ครบ ' + (S.ready.mons.length - nd.length) + '/' + S.ready.mons.length + (nd.length ? ' (ยังไม่ครบ: ' + nd.join(', ') + ')' : ''));
+  }
+  return L.join('\n');
+}
+function loadHistory() { try { return JSON.parse(localStorage.getItem('obdps.history') || '[]'); } catch (e) { return []; } }
+function saveHistory() {
+  if (S.kind === 'demo' || !S.dtc) return;
+  const h = loadHistory();
+  h.unshift({ ts: Date.now(), vin: S.info.vin || '', stored: S.dtc.stored.map(d => d.code), pending: S.dtc.pending.map(d => d.code) });
+  try { localStorage.setItem('obdps.history', JSON.stringify(h.slice(0, 20))); } catch (e) {}
+}
+function renderHistory() {
+  const h = loadHistory();
+  $('history').innerHTML = h.length ? h.map(x => '<div class="hist"><span>' + esc(new Date(x.ts).toLocaleString('th-TH')) + ' <span class="mono muted">' + esc(x.vin || 'ไม่มี VIN') + '</span></span><span class="mono">' +
+    esc(x.stored.concat(x.pending.map(c => c + '*')).join(' ') || 'ไม่มีโค้ด') + '</span></div>').join('')
+    : '<p class="empty">ยังไม่มีประวัติ แอปจะบันทึกทุกครั้งที่สแกนรถจริง และเก็บไว้ในเครื่องนี้เท่านั้น</p>';
+}
+function renderAll() { renderFacts(); renderDtc(); renderMods(); renderImmo(); renderReady(); renderChips(); renderHistory(); $('report').value = buildReport(); }
+
+/* ---------- live data ---------- */
+const tileEls = new Map();
+function livePids() { return S.supported.size ? PIDS.filter(p => S.supported.has(p.id)) : PIDS; }
+function renderChips() {
+  const list = livePids();
+  $('chips').innerHTML = list.map(p => '<button class="chip" data-pid="' + p.id + '" aria-pressed="' + S.sel.has(p.id) + '">' + esc(p.name) + '</button>').join('');
+  renderTiles();
+}
+function renderTiles() {
+  const ids = livePids().filter(p => S.sel.has(p.id));
+  const box = $('tiles');
+  for (const [id, t] of tileEls) if (!ids.some(p => p.id === id)) { t.root.remove(); tileEls.delete(id); }
+  for (const p of ids) {
+    if (tileEls.has(p.id)) continue;
+    const root = document.createElement('div'); root.className = 'tile';
+    root.innerHTML = '<span class="name">' + esc(p.name) + '</span><span class="val"><span>—</span><small>' + esc(p.unit) + '</small></span><div class="bar"><i></i></div><canvas></canvas>';
+    box.appendChild(root);
+    tileEls.set(p.id, { root, val: root.querySelector('.val span'), bar: root.querySelector('.bar i'), cv: root.querySelector('canvas') });
+  }
+  if (!ids.length && !box.children.length) box.innerHTML = '';
+}
+function updateTile(id, v) {
+  const t = tileEls.get(id), p = PID_BY_ID.get(id); if (!t) return;
+  t.val.textContent = fmt(p, v);
+  t.bar.style.width = Math.max(0, Math.min(100, (v - p.min) / (p.max - p.min) * 100)) + '%';
+  let h = S.hist.get(id); if (!h) S.hist.set(id, h = []);
+  h.push(v); if (h.length > 90) h.shift();
+  const cv = t.cv, dpr = window.devicePixelRatio || 1, w = cv.clientWidth, ht = cv.clientHeight;
+  if (!w) return;
+  if (cv.width !== Math.round(w * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(ht * dpr); }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, w, ht);
+  let lo = Math.min(...h), hi = Math.max(...h); if (hi - lo < 1e-9) { lo -= 1; hi += 1; }
+  const x = i => 2 + i * (w - 6) / 89, y = val => ht - 3 - (val - lo) / (hi - lo) * (ht - 6);
+  const col = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#0B6A88';
+  g.beginPath(); h.forEach((val, i) => i ? g.lineTo(x(i), y(val)) : g.moveTo(x(i), y(val)));
+  g.strokeStyle = col; g.lineWidth = 1.5; g.lineJoin = 'round'; g.stroke();
+  g.lineTo(x(h.length - 1), ht); g.lineTo(x(0), ht); g.closePath(); g.globalAlpha = .12; g.fillStyle = col; g.fill(); g.globalAlpha = 1;
+  g.beginPath(); g.arc(x(h.length - 1), y(h[h.length - 1]), 2.5, 0, 7); g.fill();
+}
+function stopLive() {
+  S.live = false; $('btnLive').textContent = 'เริ่มอ่านค่า';
+  if (S.wake) { try { S.wake.release(); } catch (e) {} S.wake = null; }
+}
+async function startLive() {
+  if (S.live) return;
+  if (!S.elm) { $('liveHint').textContent = 'ยังไม่ได้เชื่อมต่อหัวสแกน ไปที่แท็บภาพรวมเพื่อเชื่อมต่อก่อน'; return; }
+  S.live = true; $('btnLive').textContent = 'หยุด';
+  $('liveHint').textContent = 'แตะเพื่อเลือกค่าที่ต้องการดู เลือกน้อยค่าจะอัปเดตเร็วขึ้น';
+  try { if (navigator.wakeLock) S.wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+  let fails = 0;
+  while (S.live && S.elm) {
+    const ids = livePids().filter(p => S.sel.has(p.id)).map(p => p.id);
+    if (!ids.length) { await sleep(250); continue; }
+    for (const id of ids) {
+      if (!S.live || !S.elm) break;
+      try { const b = await S.elm.pid(id); if (b && b.length) { updateTile(id, PID_BY_ID.get(id).f(b)); fails = 0; } }
+      catch (e) { if (++fails > 4) { stopLive(); $('liveHint').textContent = 'หยุดอ่านค่าแล้ว เพราะหัวสแกนไม่ตอบ'; return; } }
+    }
+    await sleep(S.kind === 'demo' ? 140 : 5);
+  }
+}
+
+/* ---------- wiring ---------- */
+function copyText(text, btn, fallbackEl) {
+  const done = () => { const o = btn.textContent; btn.textContent = 'คัดลอกแล้ว'; setTimeout(() => { btn.textContent = o; }, 1500); };
+  const fb = () => { if (fallbackEl) { fallbackEl.focus(); fallbackEl.select(); } };
+  if (NAT) { Android.copy(text); done(); return; }
+  try { navigator.clipboard.writeText(text).then(done, fb); } catch (e) { fb(); }
+}
+function showView(v) {
+  document.querySelectorAll('.view').forEach(s => { s.hidden = s.id !== 'v-' + v; });
+  document.querySelectorAll('.tab').forEach(b => b.setAttribute('aria-selected', String(b.dataset.v === v)));
+  if (v !== 'live') stopLive();
+  window.scrollTo(0, 0);
+}
+function start() {
+  document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => showView(b.dataset.v)));
+  $('btnSerial').onclick = () => connect('serial');
+  $('btnUsb').onclick = () => connect('usb');
+  $('btnDemo').onclick = () => connect('demo');
+  $('btnDisc').onclick = () => disconnect();
+  $('btnScan').onclick = () => scanAll();
+  $('btnCopy').onclick = e => copyText($('report').value, e.currentTarget, $('report'));
+  $('btnRead').onclick = () => act('dtcMsg', 'กำลังอ่านโค้ด', readDtcs);
+  $('btnClear').onclick = () => { $('clearBox').hidden = false; };
+  $('btnClearNo').onclick = () => { $('clearBox').hidden = true; };
+  $('btnClearYes').onclick = () => {
+    $('clearBox').hidden = true;
+    act('dtcMsg', 'กำลังลบโค้ด', async e => {
+      const ok = await e.clear();
+      await readDtcs(e); S.ready = await e.readiness().catch(() => null); await readFreeze(e);
+      showMsg('dtcMsg', ok ? 'ECU ยืนยันว่าลบโค้ดแล้ว' : 'ECU ไม่ยืนยันการลบ บางรุ่นต้องดับเครื่องและบิดกุญแจไปที่ ON ก่อน', !ok);
+    });
+  };
+  $('btnMods').onclick = () => scanModules();
+  $('btnModStop').onclick = () => { S.modStop = true; };
+  $('modList').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.ren) { S.modNameId = +b.dataset.ren; renderMods(); const i = $('modNameIn'); if (i) i.focus(); }
+    else if (b.dataset.clr) { S.modClearId = +b.dataset.clr; renderMods(); }
+    else if (b.dataset.no) { S.modClearId = null; renderMods(); }
+    else if (b.dataset.yes) clearModule(+b.dataset.yes);
+  });
+  $('modList').addEventListener('submit', e => {
+    e.preventDefault();
+    const f = e.target.closest('form[data-name]'); if (!f) return;
+    saveName(f.dataset.name, $('modNameIn').value.trim()); S.modNameId = null; renderAll();
+  });
+  $('brandSel').onchange = e => { S.brandPick = e.target.value; renderAll(); };
+  $('btnReady').onclick = () => act('connMsg', 'กำลังอ่านความพร้อม', async e => { S.ready = await e.readiness(); });
+  $('btnFreeze').onclick = () => act('connMsg', 'กำลังอ่าน freeze frame', readFreeze);
+  $('btnLive').onclick = () => (S.live ? stopLive() : startLive());
+  $('chips').addEventListener('click', e => {
+    const b = e.target.closest('.chip'); if (!b) return;
+    const id = +b.dataset.pid; S.sel.has(id) ? S.sel.delete(id) : S.sel.add(id);
+    b.setAttribute('aria-pressed', String(S.sel.has(id))); renderTiles();
+  });
+  $('termForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const c = $('termIn').value.trim().toUpperCase(); if (!c) return;
+    $('termIn').value = '';
+    if (!S.elm) { log('er', 'ยังไม่ได้เชื่อมต่อหัวสแกน'); return; }
+    try { await S.elm.cmd(c, 8000); } catch (err) { log('er', explain(err)); }
+  });
+  $('btnLogCopy').onclick = e => copyText(S.logs.join('\n'), e.currentTarget);
+  renderAll();
+  connect('demo');       // open on the sample car so every screen has something to show
+}
+start();
+
+</script>
+</body>
+</html>
