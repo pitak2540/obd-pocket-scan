@@ -193,7 +193,7 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;f
       <p class="muted" style="font-size:13px">ถามทุกที่อยู่วินิจฉัยบน CAN เพื่อหา ABS, ถุงลม, พวงมาลัยไฟฟ้า, เรือนไมล์ และกล่องอื่น แล้วอ่านโค้ดกับหมายเลขชิ้นส่วนของแต่ละกล่อง ใช้เวลาราวครึ่งนาทีถึง 1 นาที ควรจอดรถและบิดกุญแจไปที่ ON</p>
       <label class="row" style="font-size:13.5px">ยี่ห้อรถ
         <select id="brandSel" class="sel">
-          <option value="" id="brandAuto">อัตโนมัติ</option><option value="toyota">Toyota</option><option value="isuzu">Isuzu</option><option value="ford">Ford</option><option value="mazda">Mazda</option><option value="mitsubishi">Mitsubishi</option>
+          <option value="" id="brandAuto">อัตโนมัติ</option><option value="toyota">Toyota</option><option value="isuzu">Isuzu</option><option value="ford">Ford</option><option value="honda">Honda</option><option value="mazda">Mazda</option><option value="mitsubishi">Mitsubishi</option>
         </select>
       </label>
       <div class="msg" id="brandNote" hidden></div>
@@ -1035,6 +1035,9 @@ const BRANDS = [
     note: 'กล่องตัวถังของ Ford บางรุ่นอยู่บน MS-CAN (ขา 3 และ 11) ซึ่ง OpenPort 2.0 และ ELM327 ทั่วไปเข้าไม่ถึง' },
   { key: 'mazda', name: 'Mazda', wmi: /^(JM[0-9Z]|MM[0-9]|3MZ|4F2)/, map: FORD_MAP,
     note: 'ชื่อกล่องใช้ผังเดียวกับ Ford ซึ่ง Mazda ใช้ร่วมกันในหลายรุ่น ตรวจกับหมายเลขชิ้นส่วนอีกครั้ง กล่องตัวถังบางรุ่นอยู่บน MS-CAN ซึ่งสายนี้เข้าไม่ถึง' },
+  { key: 'honda', name: 'Honda', wmi: /^(JH[A-Z0-9]|1HG|2HG|3HG|5FN|5J6|5J8|19[UVX]|MRH|MAK|PL1|PLH|SHH|SHS|LHG|LUC|93H|NLA|3CZ|7FA|JHL)/,
+    map: {},
+    note: 'Honda ใช้ OBD-II มาตรฐานครบทุกโปรโตคอล (ISO 9141 / KWP / CAN) อ่านเครื่องยนต์ ลบโค้ด ดูข้อมูลสดได้ทุกรุ่น ส่วน ABS / SRS / เกียร์ของ Honda ส่วนใหญ่ใช้โปรโตคอลเฉพาะของ Honda (แบบเดียวกับ HDS) ซึ่งแอปยังอ่านไม่ได้ ถ้ากล่องไหนตอบแบบมาตรฐานจะขึ้นในรายการ แล้วกด “ตั้งชื่อ” เองได้' },
   { key: 'isuzu', name: 'Isuzu', wmi: /^(MPA|MP1|JAA|JAL|JAN|JAM)/, map: {},
     note: 'แอปยังไม่มีผังชื่อกล่องของ Isuzu ดูหมายเลขชิ้นส่วนแล้วกด “ตั้งชื่อ” ได้ แอปจะจำชื่อไว้ใช้กับ Isuzu คันต่อไป' },
   { key: 'mitsubishi', name: 'Mitsubishi', wmi: /^(MM[A-Z]|JA[347]|JMB|JMY|JMP)/, map: {},
