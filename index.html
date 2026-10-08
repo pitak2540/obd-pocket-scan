@@ -762,6 +762,11 @@ class OpenPort extends Elm {
   _kEnd() {
     const b = this.kcur; this.kcur = null;
     if (!b || b.length < 4) return;
+    if (this.mode === 'hobd') {                             // Honda native: wake reply 48 6B 10 .. cs, data reply 00 len .. cs
+      if (b[0] === 0x48 && b[1] === 0x6B) this.done.push({ id: b[2], data: b.slice(3, -1), wake: true });
+      else if (b[0] === 0x00 && b[1] === b.length) this.done.push({ id: 0x10, data: b.slice(2, -1) });
+      return;
+    }
     if (this.mode === 'iso') {                              // ISO 9141-2: 48 6B xx data... checksum
       if (b.length < 5 || b[2] === 0xF1) return;
       this.done.push({ id: b[2], data: b.slice(3, -1) }); return;
@@ -790,9 +795,10 @@ class OpenPort extends Elm {
     this.done = []; this.part.clear(); this.kcur = null;
     if (this.mode === 'can') await this._sendCan(this.txId, [bytes.length, ...bytes]);
     else {
-      if (Date.now() - this.lastK > 4000) await (this.mode === 'iso' ? this._isoInit() : this._kInit());   // session drops after 5 s of silence
+      if (Date.now() - this.lastK > 4000) await (this.mode === 'hobd' ? this._hInit() : this.mode === 'iso' ? this._isoInit() : this._kInit());   // session drops after 5 s of silence
       this.done = [];
-      if (this.mode === 'iso') {
+      if (this.mode === 'hobd') await this.t.write('att3 ' + bytes.length + ' 0\r\n' + b2s(bytes));
+      else if (this.mode === 'iso') {
         const f = [0x68, 0x6A, 0xF1, ...bytes]; f.push(f.reduce((a, x) => a + x, 0) & 255);
         await this.t.write('att3 ' + f.length + ' 0\r\n' + b2s(f));
       } else await this.t.write('att4 ' + (bytes.length + 3) + ' 0\r\n' + b2s([0xC0 | bytes.length, 0x33, 0xF1, ...bytes]));
@@ -817,6 +823,7 @@ class OpenPort extends Elm {
   }
   async obd(c, timeout = 1500) {
     const bytes = toBytes(c.replace(/\s/g, ''));
+    if (this.mode === 'hobd') return this._lock(() => this._hobd(c.replace(/\s/g, '').toUpperCase()));
     return this._lock(async () => {
       this.log('tx', c);
       const msgs = await this._req(bytes, Math.min(timeout, this.mode === 'can' ? 600 : 1500));
@@ -856,6 +863,77 @@ class OpenPort extends Elm {
     this.log('rx', r.map(b => hex(b)).join(' ') || '(ว่าง)');
     this.lastK = Date.now();
     return r;
+  }
+  /* ---- Honda native protocol (pre-2002 non-US ECUs, "HOBD"): 5-baud init, wake frame, then
+     20 05 <addr> <len> <cs> = read ECU memory, 21 04 01 <cs> = clear; checksum = 256 - sum. Source: hondamotor.ru
+     logs and the open-source ArduinoHondaOBD project; addresses/scaling below are as published there. ---- */
+  async _hInit() {
+    await this._isoInit(); await sleep(250);
+    const w = [0x68, 0x6A, 0xF5, 0xAF, 0xBF, 0xB3, 0xB2, 0xC1, 0xDB, 0xB3, 0xE9];
+    this.done = []; this.kcur = null; this.log('tx', 'Honda wake ' + w.map(b => hex(b)).join(' '));
+    await this.t.write('att3 ' + w.length + ' 0\r\n' + b2s(w));
+    const t0 = Date.now(); while (!this.done.length && Date.now() - t0 < 1200) await sleep(10);
+    const ok = this.done.some(m => m.wake); this.log('rx', ok ? 'wake OK' : '(ไม่ตอบ)'); this.lastK = Date.now();
+    if (!ok) throw new Error('HONDA_WAKE');
+  }
+  _hFrame(a) { return [...a, (0x100 - (a.reduce((x, y) => x + y, 0) & 255)) & 255]; }
+  async _hr(addr, len) {                                  // len bytes of ECU memory at addr, or null
+    const m = (await this._req(this._hFrame([0x20, 0x05, addr, len]), 900)).find(x => x.data.length >= len);
+    return m ? m.data.slice(0, len) : null;
+  }
+  async _hobd(q) {
+    this.log('tx', q);
+    const ok = d => ({ lines: ['10 ' + d.map(b => hex(b)).join(' ')], msgs: [{ ecu: '10', data: d }] });
+    const none = () => ({ lines: ['NO DATA'], msgs: [] });
+    const poly = f => Math.max(0, Math.min(255, Math.round(155.04149 - f * 3.0414878 + f ** 2 * 0.03952185 - f ** 3 * 0.00029383913 + f ** 4 * 0.0000010792568 - f ** 5 * 0.0000000015618437) + 40));
+    let r = none();
+    try {
+      const one = async a => { const d = await this._hr(a, 1); return d ? d[0] : null; };
+      let v;
+      if (q === '0100') r = ok([0x41, 0x00, 0x88, 0x1E, 0x80, 0x01]);
+      else if (q === '0120') r = ok([0x41, 0x20, 0, 0, 0, 0x01]);
+      else if (q === '0140') r = ok([0x41, 0x40, 0x40, 0, 0, 0]);
+      else if (q === '0101') {
+        const f = await one(0x0B), e = await this._hErrors();
+        if (f != null && e) r = ok([0x41, 0x01, (f & 0x20 ? 0x80 : 0) | Math.min(e.length, 127), 0, 0, 0]);
+      }
+      else if (q === '0105') { if ((v = await one(0x10)) != null) r = ok([0x41, 5, poly(v)]); }
+      else if (q === '010F') { if ((v = await one(0x11)) != null) r = ok([0x41, 0x0F, poly(v)]); }
+      else if (q === '010C') {
+        const d = await this._hr(0x00, 2);
+        if (d) r = ok([0x41, 0x0C, ...(d[0] === 255 && d[1] === 255 ? [0, 0] : d)]);
+      }
+      else if (q === '010D') { if ((v = await one(0x02)) != null) r = ok([0x41, 0x0D, v]); }
+      else if (q === '010E') { if ((v = await one(0x26)) != null) r = ok([0x41, 0x0E, v]); }
+      else if (q === '0111') { if ((v = await one(0x14)) != null) r = ok([0x41, 0x11, v]); }
+      else if (q === '0142') { if ((v = await one(0x17)) != null) { const u = Math.round(v / 10.45 * 1000); r = ok([0x41, 0x42, u >> 8, u & 255]); } }
+    } catch (e) { this.log('er', String(e.message || e)); }
+    this.log('rx', r.lines.join('  '));
+    return r;
+  }
+  /* trouble codes: two 16-byte blocks at 0x40 and 0x50, one nibble per code number (same numbers as the blink codes) */
+  async _hErrors() {
+    const a = await this._hr(0x40, 16), b = await this._hr(0x50, 16);
+    if (!a || !b) return null;
+    const out = [], all = [...a, ...b];
+    all.forEach((x, k) => { if (x & 15) out.push(2 * k); if (x >> 4) out.push(2 * k + 1); });
+    return out;
+  }
+  dtcs(mode) {
+    if (this.mode !== 'hobd') return super.dtcs(mode);
+    return this._lock(async () => {
+      if (mode !== '03') return [];
+      const e = await this._hErrors(); this.log('rx', e ? 'Honda codes: ' + (e.join(' ') || '-') : '(อ่านไม่ได้)');
+      return (e || []).map(n => ({ code: 'H-' + String(n).padStart(2, '0'), ecu: '10' }));
+    });
+  }
+  clear() {
+    if (this.mode !== 'hobd') return super.clear();
+    return this._lock(async () => {
+      this.log('tx', 'Honda clear 21 04 01 DA');
+      await this._req(this._hFrame([0x21, 0x04, 0x01]), 1500);
+      const e = await this._hErrors(); return !!e && e.length === 0;
+    });
   }
   async init() {
     await this._lock(async () => {
@@ -898,7 +976,18 @@ class OpenPort extends Elm {
         } catch (e) { this.log('er', String(e.message || e)); }
         if (!found) await this._close();
       }
-      if (!found) { const e = new Error('NO_ECU'); e.detail = 'ลอง CAN 500k/250k, KWP fast init และ ISO 9141 แล้ว (J1850 OpenPort 2.0 ไม่รองรับ)'; throw e; }
+      if (!found) {                                           // Honda native protocol (old non-US Honda ECUs)
+        try {
+          this.mode = 'hobd'; this.ch = '3'; this.ext = false;
+          await this._at('ato3 512 10400 0'); this.isOpen = true;             // 0x200 = no checksum handling by the cable
+          await this._at('atf3 1 0 1', 'arf', '\x00\x00');
+          await this._hInit();
+          const d = await this._hr(0x00, 2);
+          if (d) { found = true; this.proto = '3'; this.protoName = 'Honda native (HOBD, 5 baud init + wake, 10.4 kbaud)'; }
+        } catch (e) { this.log('er', String(e.message || e)); }
+        if (!found) await this._close();
+      }
+      if (!found) { const e = new Error('NO_ECU'); e.detail = 'ลอง CAN 500k/250k, KWP fast init, ISO 9141 และ Honda native แล้ว (J1850 OpenPort 2.0 ไม่รองรับ)'; throw e; }
     });
   }
 
@@ -1003,7 +1092,10 @@ const DTC_DB = {
 /* standard codes that point at the immobilizer / key system */
 const IMMO_CODES = new Set(['P0513', 'P0630', 'P0633', 'U0167', 'U0168', 'U0426']);
 const IMMO_NAME = /immo|smart\s*key|keyless|pats|anti.?theft|security|กุญแจ|กันขโมย/i;
+/* Honda blink-code numbers (generic PGM-FI list; exact meaning can differ by model — check the service manual) */
+const HONDA_BLINK = { 0: 'ECM/PCM ผิดปกติ', 1: 'O2 เซนเซอร์', 3: 'เซนเซอร์ MAP', 4: 'เซนเซอร์ตำแหน่งเพลาข้อเหวี่ยง (CKP)', 5: 'เซนเซอร์ MAP', 6: 'เซนเซอร์อุณหภูมิน้ำหล่อเย็น (ECT)', 7: 'เซนเซอร์ตำแหน่งลิ้นปีกผีเสื้อ (TPS)', 8: 'เซนเซอร์ TDC', 9: 'เซนเซอร์ตำแหน่งสูบ (CYP)', 10: 'เซนเซอร์อุณหภูมิไอดี (IAT)', 12: 'วาล์ว EGR', 13: 'เซนเซอร์ความดันบรรยากาศ (BARO)', 14: 'วาล์วควบคุมรอบเดินเบา (IAC)', 15: 'สัญญาณจุดระเบิด', 16: 'หัวฉีด', 17: 'เซนเซอร์ความเร็วรถ (VSS)', 18: 'การปรับไทมิ่ง', 19: 'โซลินอยด์ล็อกอัพเกียร์อัตโนมัติ', 20: 'ตัวตรวจจับโหลดไฟฟ้า', 21: 'โซลินอยด์ VTEC', 22: 'สวิตช์แรงดัน VTEC', 23: 'น็อกเซนเซอร์', 30: 'สัญญาณ A/T FI A', 31: 'สัญญาณ A/T FI B', 36: 'ระบบ TCS', 41: 'ฮีตเตอร์ O2 เซนเซอร์', 43: 'ระบบจ่ายเชื้อเพลิง', 45: 'ระบบจ่ายเชื้อเพลิงบางเกิน/หนาเกิน' };
 function dtcInfo(code) {
+  if (/^H-\d+$/.test(code)) { const n = +code.slice(2); return { sys: 'Honda (รหัสกะพริบ ' + n + ')', maker: true, desc: HONDA_BLINK[n] || 'รหัสกะพริบ Honda หมายเลข ' + n + ' ดูความหมายในคู่มือรุ่นนั้น', known: n in HONDA_BLINK }; }
   const sys = { P: 'ระบบขับเคลื่อน', C: 'ช่วงล่าง', B: 'ตัวถัง', U: 'เครือข่าย' }[code[0]];
   const maker = code[1] === '1' || (code[1] === '3' && code[2] < '4');
   let d = DTC_DB[code], m;
