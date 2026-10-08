@@ -697,7 +697,7 @@ class OpenPort extends Elm {
     this.rx = ''; this.textWait = null; this.rawNeed = 0; this.lastRx = 0;
     this.mode = 'can'; this.ch = '5'; this.isOpen = false; this.ext = false;
     this.txId = 0x7DF; this.fnId = 0x7DF; this.done = []; this.part = new Map();
-    this.kcur = null; this.lastK = 0;
+    this.kcur = null; this.lastK = 0; this.kch = '4';
     t.onData = s => { this.rx += s; this._pump(); };
   }
   get can() { return this.mode === 'can'; }
@@ -762,6 +762,10 @@ class OpenPort extends Elm {
   _kEnd() {
     const b = this.kcur; this.kcur = null;
     if (!b || b.length < 4) return;
+    if (this.mode === 'iso') {                              // ISO 9141-2: 48 6B xx data... checksum
+      if (b.length < 5 || b[2] === 0xF1) return;
+      this.done.push({ id: b[2], data: b.slice(3, -1) }); return;
+    }
     let n = b[0] & 0x3F, o = 3;                             // KWP header: format, target, source [, length]
     if (!n) { n = b[3]; o = 4; }
     if (b[2] === 0xF1 || b.length < o + n) return;          // our own echo, or a short message
@@ -786,9 +790,12 @@ class OpenPort extends Elm {
     this.done = []; this.part.clear(); this.kcur = null;
     if (this.mode === 'can') await this._sendCan(this.txId, [bytes.length, ...bytes]);
     else {
-      if (Date.now() - this.lastK > 4000) await this._kInit();   // session drops after 5 s of silence
+      if (Date.now() - this.lastK > 4000) await (this.mode === 'iso' ? this._isoInit() : this._kInit());   // session drops after 5 s of silence
       this.done = [];
-      await this.t.write('att4 ' + (bytes.length + 3) + ' 0\r\n' + b2s([0xC0 | bytes.length, 0x33, 0xF1, ...bytes]));
+      if (this.mode === 'iso') {
+        const f = [0x68, 0x6A, 0xF1, ...bytes]; f.push(f.reduce((a, x) => a + x, 0) & 255);
+        await this.t.write('att3 ' + f.length + ' 0\r\n' + b2s(f));
+      } else await this.t.write('att4 ' + (bytes.length + 3) + ' 0\r\n' + b2s([0xC0 | bytes.length, 0x33, 0xF1, ...bytes]));
       this.lastK = Date.now();
     }
     const t0 = Date.now(), settle = this.mode === 'can' ? 50 : 160; let limit = firstWait;
@@ -840,6 +847,16 @@ class OpenPort extends Elm {
     this.lastK = Date.now();
     if (!r.includes(0xC1)) throw new Error('KWP_INIT');
   }
+  /* ISO 9141-2 slow init (address 0x33 at 5 baud). The OpenPort firmware is not documented for this; we try the
+     cable's init call first and, failing that, a plain request in case the firmware wakes the ECU itself. */
+  async _isoInit() {
+    this.log('tx', '5-baud init 33');
+    let r = [];
+    try { r = await this._at('aty3 1 0', 'ary', b2s([0x33]), 9000); } catch (e) { this.log('er', String(e.message || e)); }
+    this.log('rx', r.map(b => hex(b)).join(' ') || '(ว่าง)');
+    this.lastK = Date.now();
+    return r;
+  }
   async init() {
     await this._lock(async () => {
       const ari = await this._at('\r\n\r\nati', 'ari');
@@ -869,7 +886,19 @@ class OpenPort extends Elm {
         } catch (e) { this.log('er', String(e.message || e)); }
         if (!found) await this._close();
       }
-      if (!found) { const e = new Error('NO_ECU'); e.detail = 'ลอง CAN 500k/250k และ K-line KWP fast init แล้ว'; throw e; }
+      if (!found) {                                           // oldest cars: ISO 9141-2 (5-baud init), 10.4 kbaud
+        try {
+          this.mode = 'iso'; this.ch = '3'; this.ext = false;
+          await this._at('ato3 0 10400 0'); this.isOpen = true;
+          await this._at('atf3 1 0 1', 'arf', '\x00\x00');
+          await this._isoInit();
+          let m = await this._req([0x01, 0x00], 3000);
+          if (!m.some(x => x.data[0] === 0x41 && x.data[1] === 0)) m = await this._req([0x01, 0x00], 3000);
+          if (m.some(x => x.data[0] === 0x41 && x.data[1] === 0)) { found = true; this.proto = '3'; this.protoName = 'ISO 9141-2 (5 baud init, 10.4 kbaud)'; }
+        } catch (e) { this.log('er', String(e.message || e)); }
+        if (!found) await this._close();
+      }
+      if (!found) { const e = new Error('NO_ECU'); e.detail = 'ลอง CAN 500k/250k, KWP fast init และ ISO 9141 แล้ว (J1850 OpenPort 2.0 ไม่รองรับ)'; throw e; }
     });
   }
 
