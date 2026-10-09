@@ -1,4 +1,4 @@
-# OBD Pocket Scan
+# JAMES Diagnostic Solution
 
 แอปสแกน OBD-II สำหรับ Android ใช้กับ ELM327 Bluetooth, ELM327 สาย USB ชิป FTDI และ Tactrix OpenPort 2.0
 

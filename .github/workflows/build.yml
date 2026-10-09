@@ -29,5 +29,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: OBD Pocket Scan build ${{ github.run_number }}
+          name: JAMES Diagnostic build ${{ github.run_number }}
           files: obd-pocket-scan.apk

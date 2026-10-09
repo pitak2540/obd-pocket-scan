@@ -70,6 +70,9 @@ public class MainActivity extends Activity {
         usbMgr = (UsbManager) getSystemService(Context.USB_SERVICE);
 
         web = new WebView(this);
+        web.setBackgroundColor(0xFF03070E);
+        getWindow().setStatusBarColor(0xFF03070E);
+        getWindow().setNavigationBarColor(0xFF03070E);
         WebSettings s = web.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
