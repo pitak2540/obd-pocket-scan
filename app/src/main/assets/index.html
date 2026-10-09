@@ -195,7 +195,7 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;f
     <div class="panel">
       <div class="row" style="justify-content:space-between">
         <h2>กล่องอื่นในรถ</h2>
-        <div class="row"><button class="btn primary" id="btnMods">สแกนทุกกล่อง</button><button class="btn" id="btnModStop" hidden>หยุด</button></div>
+        <div class="row"><button class="btn primary" id="btnMods">สแกนทุกกล่อง</button><button class="btn" id="btnModsQuick">สแกนเร็ว ABS/SRS/ตัวถัง<small>เฉพาะที่อยู่ตามผังยี่ห้อ</small></button><button class="btn" id="btnModStop" hidden>หยุด</button></div>
       </div>
       <p class="muted" style="font-size:13px">ถามทุกที่อยู่วินิจฉัยบน CAN เพื่อหา ABS, ถุงลม, พวงมาลัยไฟฟ้า, เรือนไมล์ และกล่องอื่น แล้วอ่านโค้ดกับหมายเลขชิ้นส่วนของแต่ละกล่อง ใช้เวลาราวครึ่งนาทีถึง 1 นาที ควรจอดรถและบิดกุญแจไปที่ ON</p>
       <label class="row" style="font-size:13.5px">ยี่ห้อรถ
@@ -662,11 +662,20 @@ class Elm {
       if (again && again.ok) return this.modRead0(id, again.ok);
     }
     const ecu = r.nrc.ecu, nrc = r.nrc.data[2];
+    for (const q of ['1902FF', '190A']) {                       // other UDS status masks / "supported DTC" list
+      const x = pick(await this.modReq(id, q), 0x59, 0x19); if (x && x.ok) return this.modRead0(id, x.ok);
+    }
     r = pick(await this.modReq(id, '1800FF00'), 0x58, 0x18);
     if (r && r.ok) {
       const d = r.ok.data.slice(2), dtcs = [];
       for (let i = 0; i + 2 < d.length; i += 3) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
       return { id, ecu, proto: 'kwp', dtcs };
+    }
+    const o = (await this.modReq(id, '03')).find(m => m.data[0] === 0x43);   // plain OBD-II mode 03 sent to this module only
+    if (o) {
+      const d = o.data.slice(2), dtcs = [];
+      for (let i = 0; i + 1 < d.length; i += 2) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
+      return { id, ecu, proto: 'obd', dtcs };
     }
     return { id, ecu, proto: null, nrc, dtcs: [] };
   }
@@ -690,7 +699,21 @@ class Elm {
     }
     return out;
   }
-  async modClear(id, proto) { const m = await this.modReq(id, proto === 'kwp' ? '14FF00' : '14FFFFFF', true); return m.some(x => x.data[0] === 0x54); }
+  /* clear one module: try the service its read answered to, then the others; open the extended session if refused */
+  async modClear(id, proto) {
+    const seq = proto === 'obd' ? [['04', 0x44]] : proto === 'kwp' ? [['14FF00', 0x54], ['14FFFFFF', 0x54], ['04', 0x44]] : [['14FFFFFF', 0x54], ['14FF00', 0x54], ['04', 0x44]];
+    let opened = false;
+    for (const [q, pos] of seq) {
+      let m = await this.modReq(id, q, true);
+      if (m.some(x => x.data[0] === pos)) return true;
+      const nrc = m.find(x => x.data[0] === 0x7F);
+      if (nrc && !opened && [0x22, 0x33, 0x7E, 0x7F].includes(nrc.data[2])) {       // wrong session / security: extended session only (no unlock attempts)
+        opened = true; await this.modReq(id, '1003');
+        m = await this.modReq(id, q, true); if (m.some(x => x.data[0] === pos)) return true;
+      }
+    }
+    return false;
+  }
   async shutdown() { await this.cmd('ATPC', 1000).catch(() => {}); }
   async voltage() { const r = await this.cmd('ATRV', 2500).catch(() => []); const m = (r[0] || '').match(/[\d.]+/); return m ? parseFloat(m[0]) : null; }
 }
@@ -1330,9 +1353,10 @@ function scanAll() {
 }
 
 /* scan every diagnostic address for modules and read their codes */
-function scanModules() {
+function scanModules(quick) {
   return act('modMsg', 'กำลังสแกนกล่องอื่น', async e => {
-    const ids = e.modIds(), found = [];
+    const bd = BRANDS.find(x => x.key === curBrand());
+    const ids = quick && bd && !e.ext29 && Object.keys(bd.map).length ? Object.keys(bd.map).map(Number).sort((a, b) => a - b) : e.modIds(), found = [];
     S.modStop = false; S.mods = null; S.modClearId = null;
     $('modProg').hidden = false; $('btnModStop').hidden = false; $('modBar').style.width = '0';
     await e.modBegin();
@@ -1345,6 +1369,21 @@ function scanModules() {
     } finally { await e.modEnd().catch(() => {}); $('modProg').hidden = true; $('btnModStop').hidden = true; }
     S.mods = found;
     if (S.modStop) showMsg('modMsg', 'หยุดสแกนก่อนครบ ผลด้านล่างเป็นเฉพาะที่อยู่ที่ถามไปแล้ว');
+  });
+}
+function clearAllModules() {
+  S.modClearAll = false;
+  return act('modMsg', 'กำลังลบโค้ดทุกกล่อง', async e => {
+    await e.modBegin();
+    let ok = 0, bad = 0, left = 0;
+    try {
+      for (const m of (S.mods || []).filter(x => x.proto && x.dtcs.length)) {
+        const done = await e.modClear(m.id, m.proto).catch(() => false), again = await e.modRead(m.id).catch(() => null);
+        if (again) Object.assign(m, again);
+        if (done) { ok++; left += m.dtcs.length; } else bad++;
+      }
+    } finally { await e.modEnd().catch(() => {}); }
+    showMsg('modMsg', 'ลบสำเร็จ ' + ok + ' กล่อง' + (bad ? ' · กล่องที่ไม่ยอมลบ ' + bad + ' กล่อง (ดูรายการด้านล่าง)' : '') + (left ? ' · ยังมีโค้ดกลับมา ' + left + ' โค้ด แปลว่าอาการยังอยู่' : ''), !!bad);
   });
 }
 function clearModule(id) {
@@ -1380,9 +1419,13 @@ function renderMods() {
   $('brandNote').hidden = !(bd && list && list.length); $('brandNote').textContent = bd ? bd.note : '';
   if (!list) { el.innerHTML = '<p class="empty">ยังไม่ได้สแกน</p>'; return; }
   if (!list.length) { el.innerHTML = '<p class="empty">ยังไม่พบกล่องที่ตอบ</p>'; return; }
-  el.innerHTML = list.map(m => {
+  const nClr = list.filter(m => m.proto && m.dtcs.length).length;
+  const all = nClr ? (S.modClearAll
+    ? '<div class="confirm"><b>ลบโค้ดทุกกล่องที่มีโค้ด (' + nClr + ' กล่อง)?</b><span class="muted">การลบไม่ได้ซ่อมอาการ ซ่อมและตรวจให้เสร็จก่อน โค้ดที่ยังมีอาการอยู่จะกลับมาทันที โค้ดถุงลมที่บันทึกจากอุบัติเหตุบางกล่องลบด้วยวิธีนี้ไม่ได้</span><div class="row"><button class="btn danger solid sm" data-yesall="1">ลบทุกกล่อง</button><button class="btn sm" data-noall="1">ยกเลิก</button></div></div>'
+    : '<div class="row"><button class="btn danger sm" data-clrall="1">ลบโค้ดทุกกล่อง (' + nClr + ')</button></div>') : '';
+  el.innerHTML = all + list.map(m => {
     const L = modLabel(m), n = m.dtcs.length;
-    const pill = (isImmoMod(m) ? '<span class="pill warn">immobilizer</span>' : '') + !m.proto ? '<span class="pill">อ่านโค้ดไม่ได้</span>' : n ? '<span class="pill bad">' + n + ' โค้ด</span>' : '<span class="pill ok">ไม่มีโค้ด</span>';
+    const pill = (isImmoMod(m) ? '<span class="pill warn">immobilizer</span>' : '') + (!m.proto ? '<span class="pill">อ่านโค้ดไม่ได้</span>' : n ? '<span class="pill bad">' + n + ' โค้ด</span>' : '<span class="pill ok">ไม่มีโค้ด</span>');
     const codes = m.dtcs.map(d => {
       const inf = dtcInfo(d.base), st = [];
       if (d.status & 0x01) st.push('<span class="pill bad">เกิดอยู่ตอนนี้</span>');
@@ -1603,10 +1646,14 @@ function start() {
     });
   };
   $('btnMods').onclick = () => scanModules();
+  $('btnModsQuick').onclick = () => scanModules(true);
   $('btnModStop').onclick = () => { S.modStop = true; };
   $('modList').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    if (b.dataset.ren) { S.modNameId = +b.dataset.ren; renderMods(); const i = $('modNameIn'); if (i) i.focus(); }
+    if (b.dataset.clrall) { S.modClearAll = true; renderMods(); }
+    else if (b.dataset.noall) { S.modClearAll = false; renderMods(); }
+    else if (b.dataset.yesall) clearAllModules();
+    else if (b.dataset.ren) { S.modNameId = +b.dataset.ren; renderMods(); const i = $('modNameIn'); if (i) i.focus(); }
     else if (b.dataset.clr) { S.modClearId = +b.dataset.clr; renderMods(); }
     else if (b.dataset.no) { S.modClearId = null; renderMods(); }
     else if (b.dataset.yes) clearModule(+b.dataset.yes);
