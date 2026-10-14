@@ -5,13 +5,52 @@
   "description": "JAMES Diagnostic Solution",
   "main": "main.js",
   "author": "James",
-  "scripts": { "start": "electron .", "dist": "electron-builder --win portable --x64" },
-  "devDependencies": { "electron": "33.2.1", "electron-builder": "25.1.8" },
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win portable --ia32"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
   "build": {
     "appId": "com.james.diagnostic",
     "productName": "JAMES Diagnostic",
-    "files": ["main.js", "index.html", "icon.png"],
-    "win": { "icon": "icon.png", "target": [{ "target": "portable", "arch": ["x64"] }] },
-    "portable": { "artifactName": "JAMES-Diagnostic.exe" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "j2534.js",
+      "index.html",
+      "icon.png",
+      "!node_modules/koffi/build/koffi/darwin_*/**",
+      "!node_modules/koffi/build/koffi/freebsd_*/**",
+      "!node_modules/koffi/build/koffi/linux_*/**",
+      "!node_modules/koffi/build/koffi/musl_*/**",
+      "!node_modules/koffi/build/koffi/openbsd_*/**",
+      "!node_modules/koffi/build/koffi/win32_arm64/**",
+      "!node_modules/koffi/build/koffi/win32_x64/**",
+      "!node_modules/koffi/src/**",
+      "!node_modules/koffi/doc/**"
+    ],
+    "win": {
+      "icon": "icon.png",
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "ia32"
+          ]
+        }
+      ]
+    },
+    "portable": {
+      "artifactName": "JAMES-Diagnostic.exe"
+    },
+    "asarUnpack": [
+      "node_modules/koffi/**"
+    ]
+  },
+  "dependencies": {
+    "koffi": "2.10.1"
   }
 }

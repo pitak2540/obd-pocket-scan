@@ -378,6 +378,95 @@ class UsbBulkTransport {
   }
 }
 
+
+/* Windows desktop app: any J2534 PassThru cable (Tactrix OpenPort 2.0, Mongoose, VCX ...) through its vendor DLL.
+   The OpenPort class below speaks the OpenPort "at" text protocol; this transport answers that protocol and turns each
+   command into J2534 calls, so CAN / KWP fast init / ISO 9141 all reuse the same engine. `b` is window.J2534 (preload bridge). */
+class J2534Transport {
+  constructor(b, dll, name) { this.b = b; this.dll = dll; this.name = name || ''; this.onData = () => {}; this.onLost = null; this.buf = ''; this.q = Promise.resolve(); this.chs = {}; this.alive = false; this.ver = ''; }
+  async _c(fn, ...a) { const r = await this.b[fn](...a); if (!r || !r.ok) throw new Error((r && (r.msg || ('rc=' + r.rc))) || 'J2534 ' + fn); return r; }
+  async open() {
+    await this._c('load', this.dll);
+    await this._c('open');
+    try { this.ver = (await this._c('version')).fw || ''; } catch (e) { this.ver = ''; }
+    this.alive = true; this._loop();
+  }
+  async close() {
+    this.alive = false;
+    await this._dropAll();
+    try { await this.b.close(); } catch (e) {}
+  }
+  async _dropAll() { for (const ch of Object.keys(this.chs)) { try { await this.b.disconnect(this.chs[ch].id); } catch (e) {} } this.chs = {}; }
+  write(s) { this.buf += s; this.q = this.q.then(() => this._drain()).catch(() => {}); return Promise.resolve(); }
+  _say(l) { this.onData(l + '\r\n'); }
+  async _drain() {
+    for (;;) {
+      while (this.buf.startsWith('\r\n')) this.buf = this.buf.slice(2);
+      const i = this.buf.indexOf('\r\n'); if (i < 0) return;
+      const tk = this.buf.slice(0, i).trim().split(/\s+/), c = (tk[0] || '').toLowerCase();
+      let need = 0;
+      if (/^att\d$/.test(c)) need = +tk[1] || 0; else if (/^atf\d$/.test(c)) need = 2 * (+tk[3] || 0); else if (/^aty\d$/.test(c)) need = +tk[1] || 0;
+      if (this.buf.length < i + 2 + need) return;
+      const bin = Array.from(s2b(this.buf.slice(i + 2, i + 2 + need))); this.buf = this.buf.slice(i + 2 + need);
+      try { await this._cmd(tk, c, bin); } catch (e) { this._say('are' + (this._ec = String(e.message || e).replace(/\s+/g, '_').slice(0, 60))); }
+    }
+  }
+  async _cmd(tk, c, bin) {
+    if (c === 'ati') return this._say('ari ' + (this.name || 'J2534') + (this.ver ? ' fw ' + this.ver : ''));
+    if (c === 'ata') return this._say('aro');
+    if (c === 'atz') { await this._dropAll(); return this._say('aro'); }
+    if (c === 'atr') { const r = await this._c('vbatt'); return this._say('arr 16 ' + r.mv); }
+    const m = /^at([otcfy])(\d)$/.exec(c); if (!m) return this._say('aro');
+    const op = m[1], ch = +m[2];
+    if (op === 'o') {
+      let fl = +tk[1] || 0; if (ch === 3) fl |= 0x200;                      // ISO 9141: our engine adds the checksum itself
+      const r = await this._c('connect', ch, fl, +tk[2] || 10400);
+      this.chs[ch] = { id: r.ch, fl: ch === 5 ? fl : 0 };
+      return this._say('aro');
+    }
+    const h = this.chs[ch]; if (!h) throw new Error('NO_CHANNEL');
+    if (op === 'c') { await this.b.disconnect(h.id); delete this.chs[ch]; return this._say('aro'); }
+    if (op === 'f') {
+      const L = bin.length / 2;
+      await this._c('filter', h.id, ch, h.fl, bin.slice(0, L), bin.slice(L));
+      return this._say('arf' + ch + ' 1');
+    }
+    if (op === 't') { await this._c('write', h.id, ch, +tk[2] ? +tk[2] : h.fl, bin, 300); return; }
+    if (op === 'y') {
+      const r = ch === 3 ? await this._c('fiveBaud', h.id, bin) : await this._c('fastInit', h.id, ch, bin);
+      const d = r.data || [];
+      this._say('ary' + ch + ' ' + d.length);
+      if (d.length) this.onData(b2s(d));
+      return;
+    }
+  }
+  _emit(ch, msg) {
+    const d = msg.data;
+    if (ch === 5) {
+      if ((msg.rx & 1) || d.length < 5) return;                              // our own frame echoed back, or a start-of-message marker
+      const t = msg.ts >>> 0, p = [0x00, t >>> 24 & 255, t >>> 16 & 255, t >>> 8 & 255, t & 255, ...d.slice(0, 12)];
+      this.onData('ar5' + String.fromCharCode(p.length) + b2s(p));
+    } else {
+      if ((msg.rx & 1) || !d.length) return;
+      const p = [0x00, ...d.slice(0, 250)];
+      this.onData('ar' + ch + String.fromCharCode(p.length) + b2s(p) + 'ar' + ch + String.fromCharCode(1) + '\x80');
+    }
+  }
+  async _loop() {
+    try {
+      while (this.alive) {
+        let any = false;
+        for (const ch of Object.keys(this.chs)) {
+          const h = this.chs[ch]; if (!h) continue;
+          const r = await this.b.read(h.id, +ch, 16, 3);
+          if (r && r.ok && r.msgs.length) { any = true; for (const m of r.msgs) this._emit(+ch, m); }
+        }
+        await sleep(any ? 1 : 4);
+      }
+    } catch (e) { if (this.alive) { this.alive = false; if (this.onLost) this.onLost(); } }
+  }
+}
+
 /* Android app build: Bluetooth SPP and USB go through the native bridge (window.Android) instead of browser APIs */
 const NAT = typeof Android !== 'undefined';
 const __nat = { cur: null, open: null,
@@ -1350,7 +1439,7 @@ function modName(id, brandKey, ext) {
   return { name: '', brand: '' };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { KLine, FtdiTransport, NativeTransport, IMMO_CODES, IMMO_NAME, modName, brandOf, BRANDS, Elm, OpenPort, DemoTransport, b2s, s2b, hex, PIDS, PID_BY_ID, dtcInfo, dtcCode };
+if (typeof module !== 'undefined' && module.exports) module.exports = { J2534Transport, KLine, FtdiTransport, NativeTransport, IMMO_CODES, IMMO_NAME, modName, brandOf, BRANDS, Elm, OpenPort, DemoTransport, b2s, s2b, hex, PIDS, PID_BY_ID, dtcInfo, dtcCode };
 
 /* ---------- UI ---------- */
 const $ = id => document.getElementById(id);
@@ -1462,8 +1551,13 @@ async function connect(kind) {
     S.kind = null; S.info = {}; S.supported = new Set(); S.dtc = S.ready = S.freeze = S.scanAt = S.mods = null; renderAll();
     showMsg('connMsg', '');
     setStatus('busy', 'กำลังเชื่อมต่อหัวสแกน');
-    let elm;
+    let elm, jdev = null;
+    if (kind === 'usb' && window.J2534) {                     // Windows desktop app: use the cable's own J2534 driver when one is installed
+      const libs = await window.J2534.list().catch(() => []);
+      jdev = libs.find(x => /tactrix|openport/i.test(x.name)) || libs[0] || null;
+    }
     if (kind === 'demo') { t = new DemoTransport(); await t.open(); elm = new Elm(t, log); }
+    else if (jdev) { setStatus('busy', 'กำลังต่อ ' + jdev.name); t = new J2534Transport(window.J2534, jdev.dll, jdev.name); await t.open(); elm = new OpenPort(t, log); }
     else if (kind === 'serial' && NAT) { t = new NativeTransport('bt', await nativeBt()); setStatus('busy', 'กำลังต่อ Bluetooth'); elm = await probeElm(t); }
     else if (kind === 'usb' && NAT) {
       const dev = await nativeUsb();

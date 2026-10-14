@@ -20,7 +20,7 @@ jobs:
           cp index.html desktop/index.html
           cd desktop
           npm install --no-audit --no-fund
-          npx electron-builder --win portable --x64 --publish never
+          npx electron-builder --win portable --ia32 --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: james-diagnostic-exe
