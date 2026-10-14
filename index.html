@@ -128,7 +128,6 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;f
     <span class="lamp" id="lamp" title="ไฟเตือนเครื่องยนต์ (MIL)">CHECK</span>
   </header>
 
-  <div class="demo-note" id="demoNote" hidden>กำลังแสดงรถตัวอย่าง ข้อมูลทุกค่าบนหน้านี้เป็นค่าจำลอง ไม่ได้มาจากรถของคุณ</div>
 
   <!-- ภาพรวม -->
   <section id="v-home" class="view">
@@ -138,7 +137,6 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;f
       <div class="connect">
         <button class="btn primary" id="btnSerial">Bluetooth ELM327<small>จับคู่ในตั้งค่ามือถือก่อน (PIN 1234 หรือ 0000)</small></button>
         <button class="btn primary" id="btnUsb">สาย USB<small>ELM327 ชิป FTDI, สาย K-line ดิบ (KKL) หรือ Tactrix OpenPort 2.0 ผ่าน OTG</small></button>
-        <button class="btn" id="btnDemo">รถตัวอย่าง<small>ลองใช้โดยไม่ต้องต่อรถ</small></button>
       </div>
       <div class="row"><button class="btn" id="btnDisc" hidden>ตัดการเชื่อมต่อ</button></div>
       <div class="picker" id="picker" hidden></div>
@@ -1573,8 +1571,7 @@ async function connect(kind) {
       const libs = await window.J2534.list().catch(() => []);
       jdev = libs.find(x => /tactrix|openport/i.test(x.name)) || libs[0] || null;
     }
-    if (kind === 'demo') { t = new DemoTransport(); await t.open(); elm = new Elm(t, log); }
-    else if (jdev) { setStatus('busy', 'กำลังต่อ ' + jdev.name); t = new J2534Transport(window.J2534, jdev.dll, jdev.name); await t.open(); elm = new OpenPort(t, log); }
+    if (jdev) { setStatus('busy', 'กำลังต่อ ' + jdev.name); t = new J2534Transport(window.J2534, jdev.dll, jdev.name); await t.open(); elm = new OpenPort(t, log); }
     else if (kind === 'serial' && NAT) { t = new NativeTransport('bt', await nativeBt()); setStatus('busy', 'กำลังต่อ Bluetooth'); elm = await probeElm(t); }
     else if (kind === 'usb' && NAT) {
       const dev = await nativeUsb();
@@ -1796,7 +1793,6 @@ function renderFacts() {
   ];
   $('facts').innerHTML = rows.map(([k, v]) => '<div class="fact"><dt>' + esc(k) + '</dt><dd>' + esc(v) + '</dd></div>').join('');
   $('lamp').className = 'lamp' + (S.ready && S.ready.mil ? ' lit' : '');
-  $('demoNote').hidden = S.kind !== 'demo';
   $('btnDisc').hidden = !on;
 }
 const immoPill = c => (IMMO_CODES.has(c) ? '<span class="pill warn">immobilizer</span>' : '');
@@ -1871,15 +1867,20 @@ function buildReport() {
 }
 function loadHistory() { try { return JSON.parse(localStorage.getItem('obdps.history') || '[]'); } catch (e) { return []; } }
 function saveHistory() {
-  if (S.kind === 'demo' || !S.dtc) return;
+  if (!S.dtc) return;
   const h = loadHistory();
   h.unshift({ ts: Date.now(), vin: S.info.vin || '', stored: S.dtc.stored.map(d => d.code), pending: S.dtc.pending.map(d => d.code) });
   try { localStorage.setItem('obdps.history', JSON.stringify(h.slice(0, 20))); } catch (e) {}
 }
+function saveHistoryList(h) { try { localStorage.setItem('obdps.history', JSON.stringify(h)); } catch (e) {} }
 function renderHistory() {
   const h = loadHistory();
-  $('history').innerHTML = h.length ? h.map(x => '<div class="hist"><span>' + esc(new Date(x.ts).toLocaleString('th-TH')) + ' <span class="mono muted">' + esc(x.vin || 'ไม่มี VIN') + '</span></span><span class="mono">' +
-    esc(x.stored.concat(x.pending.map(c => c + '*')).join(' ') || 'ไม่มีโค้ด') + '</span></div>').join('')
+  const row = (x, i) => '<div class="hist"><span>' + esc(new Date(x.ts).toLocaleString('th-TH')) + ' <span class="mono muted">' + esc(x.vin || 'ไม่มี VIN') + '</span></span><span class="mono">' +
+    esc(x.stored.concat(x.pending.map(c => c + '*')).join(' ') || 'ไม่มีโค้ด') + '</span><button class="btn danger sm" data-hdel="' + i + '" aria-label="ลบรายการนี้">ลบ</button></div>';
+  const bar = !h.length ? '' : S.histAll
+    ? '<div class="confirm"><b>ลบประวัติทั้งหมด (' + h.length + ' รายการ)?</b><span class="muted">ลบออกจากเครื่องนี้ถาวร กู้คืนไม่ได้</span><div class="row"><button class="btn danger solid sm" data-hyes="1">ลบทั้งหมด</button><button class="btn sm" data-hno="1">ยกเลิก</button></div></div>'
+    : '<div class="row"><button class="btn danger sm" data-hall="1">ลบประวัติทั้งหมด</button></div>';
+  $('history').innerHTML = h.length ? bar + h.map(row).join('')
     : '<p class="empty">ยังไม่มีประวัติ แอปจะบันทึกทุกครั้งที่สแกนรถจริง และเก็บไว้ในเครื่องนี้เท่านั้น</p>';
 }
 function renderAll() { renderFacts(); renderDtc(); renderMods(); renderImmo(); renderReady(); renderChips(); renderHistory(); $('report').value = buildReport(); }
@@ -1963,7 +1964,6 @@ function start() {
   document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => showView(b.dataset.v)));
   $('btnSerial').onclick = () => connect('serial');
   $('btnUsb').onclick = () => connect('usb');
-  $('btnDemo').onclick = () => connect('demo');
   $('btnDisc').onclick = () => disconnect();
   $('btnScan').onclick = () => scanAll();
   $('btnCopy').onclick = e => copyText($('report').value, e.currentTarget, $('report'));
@@ -2016,9 +2016,16 @@ function start() {
     if (!S.elm) { log('er', 'ยังไม่ได้เชื่อมต่อหัวสแกน'); return; }
     try { await S.elm.cmd(c, 8000); } catch (err) { log('er', explain(err)); }
   });
+  $('history').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    if (b.dataset.hdel) { const h = loadHistory(); h.splice(+b.dataset.hdel, 1); saveHistoryList(h); }
+    else if (b.dataset.hall) S.histAll = true;
+    else if (b.dataset.hno) S.histAll = false;
+    else if (b.dataset.hyes) { saveHistoryList([]); S.histAll = false; }
+    renderHistory();
+  });
   $('btnLogCopy').onclick = e => copyText(S.logs.join('\n'), e.currentTarget);
   renderAll();
-  connect('demo');       // open on the sample car so every screen has something to show
 }
 start();
 
