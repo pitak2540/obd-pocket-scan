@@ -740,40 +740,57 @@ class Elm {
   }
   async modReq(id, payload, slow) {
     await this.cmd('ATSH' + (this.ext29 ? 'DA' + hex(id) + 'F1' : hex(id, 3)), 2000);
-    if (slow) await this.cmd('ATSTFF', 2000).catch(() => {});
-    try { return (await this.obd(payload, slow ? 8000 : 3000)).msgs; }
+    if (slow) await this.cmd('ATST' + (typeof slow === 'number' ? hex(Math.min(255, Math.ceil(slow / 4))) : 'FF'), 2000).catch(() => {});
+    try { return (await this.obd(payload, typeof slow === 'number' ? slow + 1500 : slow ? 8000 : 3000)).msgs; }
     finally { if (slow) await this.cmd('ATST19', 2000).catch(() => {}); }
   }
   async modEnd() { for (const c of ['ATAR', 'ATAT1', 'ATST32', this.ext29 ? 'ATSHDB33F1' : 'ATSH7DF']) await this.cmd(c, 2000).catch(() => {}); }
   /* read one module's codes: UDS 19 02 first, KWP2000 18 00 as fallback. null = nobody at that address */
   async modRead(id) {
+    const trace = [];
+    const Q = async (p, w) => {
+      const m = await this.modReq(id, p, w);
+      trace.push(p + ' → ' + (m.length ? m.map(x => x.data.map(b => hex(b)).join(' ')).join(' | ') : '(เงียบ)'));
+      return m;
+    };
+    const r = await this._modRead(id, Q);
+    if (r) r.trace = trace;
+    return r;
+  }
+  async _modRead(id, Q) {
     const pick = (msgs, pos, svc) => {
       const p = msgs.find(m => m.data[0] === pos); if (p) return { ok: p };
       const n = msgs.find(m => m.data[0] === 0x7F && m.data[1] === svc); return n ? { nrc: n } : null;
     };
-    let r = pick(await this.modReq(id, '19020D'), 0x59, 0x19);
+    let r = pick(await Q('19020D'), 0x59, 0x19);
     if (!r) return null;
     if (r.ok) return this.modRead0(id, r.ok);
     if (r.nrc.data[2] === 0x7F || r.nrc.data[2] === 0x7E) {   // not available in the default session: try extended
-      await this.modReq(id, '1003');
-      const again = pick(await this.modReq(id, '19020D'), 0x59, 0x19);
+      await Q('1003');
+      const again = pick(await Q('19020D'), 0x59, 0x19);
       if (again && again.ok) return this.modRead0(id, again.ok);
     }
     const ecu = r.nrc.ecu, nrc = r.nrc.data[2];
     for (const q of ['1902FF', '190A']) {                       // other UDS status masks / "supported DTC" list
-      const x = pick(await this.modReq(id, q), 0x59, 0x19); if (x && x.ok) return this.modRead0(id, x.ok);
+      const x = pick(await Q(q, 400), 0x59, 0x19); if (x && x.ok) return this.modRead0(id, x.ok);
     }
-    r = pick(await this.modReq(id, '1800FF00'), 0x58, 0x18);
+    r = pick(await Q('1800FF00', 400), 0x58, 0x18);
     if (r && r.ok) {
       const d = r.ok.data.slice(2), dtcs = [];
       for (let i = 0; i + 2 < d.length; i += 3) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
       return { id, ecu, proto: 'kwp', dtcs };
     }
-    const o = (await this.modReq(id, '03')).find(m => m.data[0] === 0x43);   // plain OBD-II mode 03 sent to this module only
+    const o = (await Q('03', 400)).find(m => m.data[0] === 0x43);   // plain OBD-II mode 03 sent to this module only
     if (o) {
       const d = o.data.slice(2), dtcs = [];
       for (let i = 0; i + 1 < d.length; i += 2) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
       return { id, ecu, proto: 'obd', dtcs };
+    }
+    const k = pick(await Q('13FF00', 400), 0x53, 0x13);          // KWP2000 readDiagnosticTroubleCodes (older Toyota-style CAN modules)
+    if (k && k.ok) {
+      const d = k.ok.data.slice(2), dtcs = [];
+      for (let i = 0; i + 2 < d.length; i += 3) { if (!d[i] && !d[i + 1]) continue; const c = dtcCode(d[i], d[i + 1]); dtcs.push({ code: c, base: c, status: 0x08 }); }
+      return { id, ecu, proto: 'kwp', dtcs };
     }
     return { id, ecu, proto: null, nrc, dtcs: [] };
   }
@@ -1072,7 +1089,7 @@ class OpenPort extends Elm {
       const tx = this.ext ? (0x18DA00F1 | (id << 8)) >>> 0 : id;
       try {
         this.txId = tx;
-        const msgs = await this._req(toBytes(payload), slow ? 5000 : 100);
+        const msgs = await this._req(toBytes(payload), typeof slow === 'number' ? slow : slow ? 5000 : 100);
         if (msgs.length) { this.log('tx', hex(tx, this.ext ? 8 : 3) + ' ' + payload); this.log('rx', msgs.map(m => m.ecu + ' ' + m.data.map(b => hex(b)).join(' ')).join('  ')); }
         return msgs;
       } finally { this.txId = this.fnId; }
@@ -1843,6 +1860,7 @@ function buildReport() {
   if (S.mods && S.mods.length) {
     L.push('', 'กล่องอื่นในรถ (' + S.mods.length + ')');
     S.mods.forEach(m => { const l = modLabel(m); L.push('  ' + l.addr + ' ' + l.name + (m.info && m.info.part ? ' [' + m.info.part + ']' : '') + ': ' + (!m.proto ? 'อ่านโค้ดไม่ได้' : m.dtcs.length ? m.dtcs.map(d => d.code).join(' ') : 'ไม่มีโค้ด')); });
+    S.mods.forEach(m => { if (!m.proto && m.trace) { const l = modLabel(m); L.push('  ' + l.addr + ' รายละเอียดที่กล่องตอบ:'); m.trace.forEach(t => L.push('      ' + t)); } });
   }
   if (S.freeze && S.freeze.code) { L.push('', 'Freeze frame ของ ' + S.freeze.code); S.freeze.rows.forEach(r => L.push('  ' + r.p.name + ': ' + fmt(r.p, r.v) + ' ' + r.p.unit)); }
   if (S.ready) {
