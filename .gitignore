@@ -2,3 +2,6 @@
 build/
 app/build/
 local.properties
+desktop/node_modules
+desktop/dist
+desktop/index.html

@@ -1,0 +1,17 @@
+{
+  "name": "james-diagnostic",
+  "productName": "JAMES Diagnostic",
+  "version": "1.0.0",
+  "description": "JAMES Diagnostic Solution",
+  "main": "main.js",
+  "author": "James",
+  "scripts": { "start": "electron .", "dist": "electron-builder --win portable --x64" },
+  "devDependencies": { "electron": "33.2.1", "electron-builder": "25.1.8" },
+  "build": {
+    "appId": "com.james.diagnostic",
+    "productName": "JAMES Diagnostic",
+    "files": ["main.js", "index.html", "icon.png"],
+    "win": { "icon": "icon.png", "target": [{ "target": "portable", "arch": ["x64"] }] },
+    "portable": { "artifactName": "JAMES-Diagnostic.exe" }
+  }
+}
