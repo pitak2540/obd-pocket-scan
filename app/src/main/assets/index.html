@@ -1372,9 +1372,11 @@ function log(dir, text) {
 }
 function setStatus(kind, text) { $('dot').className = 'dot ' + kind; $('statusText').textContent = text; }
 function showMsg(id, text, err) { const el = $(id); el.hidden = !text; el.textContent = text || ''; el.className = 'msg' + (err ? ' err' : ''); }
+const DESK = typeof navigator !== 'undefined' && /Electron/i.test(navigator.userAgent);
 function explain(e) {
   const m = String((e && e.message) || e), n = e && e.name;
   if (n === 'NotFoundError') return 'ยังไม่ได้เลือกอุปกรณ์';
+  if (/access denied/i.test(m)) return 'Windows ไม่ยอมให้แอปเปิดสายนี้โดยตรง (ไดรเวอร์ FTDI จับอยู่) ให้ปิดโปรแกรมอื่นที่ใช้สายนี้ เช่น ECUFlash/PCMflash/J2534 แล้วลองอีกครั้ง';
   if (n === 'SecurityError' || /permissions policy|not allowed/i.test(m)) return 'หน้านี้เปิดอยู่ในกรอบที่ปิดการเข้าถึง Bluetooth และ USB ให้เปิดแอปจากที่อยู่ https โดยตรงใน Chrome แล้วลองอีกครั้ง';
   if (m === 'BT_PERM') return 'อนุญาตให้แอปใช้อุปกรณ์ที่อยู่ใกล้เคียง (Bluetooth) แล้วกดปุ่มอีกครั้ง';
   if (m === 'BT_OFF') return 'Bluetooth ปิดอยู่ เปิด Bluetooth แล้วลองอีกครั้ง';
@@ -1468,7 +1470,7 @@ async function connect(kind) {
       if (OP_PIDS.includes(dev.pid)) { t = new NativeTransport('bulk', dev); await t.open(); elm = new OpenPort(t, log); }
       else { t = new NativeTransport('ftdi', dev); elm = await probeFtdi(t); }
     }
-    else if (kind === 'serial') {
+    else if (kind === 'serial' || (kind === 'usb' && DESK && navigator.serial)) {   // desktop app: Windows drivers own the cable, so use its COM port
       if (!navigator.serial) throw new Error('NO_SERIAL');
       const port = await navigator.serial.requestPort();
       const inf = port.getInfo ? port.getInfo() : {};
