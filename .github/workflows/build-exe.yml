@@ -20,14 +20,18 @@ jobs:
           cp index.html desktop/index.html
           cd desktop
           npm install --no-audit --no-fund
-          npx electron-builder --win portable --ia32 --publish never
+          npx electron-builder --win nsis portable --ia32 --publish never
       - uses: actions/upload-artifact@v4
         with:
           name: james-diagnostic-exe
-          path: desktop/dist/JAMES-Diagnostic.exe
+          path: |
+            desktop/dist/JAMES-Diagnostic.exe
+            desktop/dist/JAMES-Diagnostic-Setup.exe
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: exe-${{ github.run_number }}
           name: JAMES Diagnostic Windows build ${{ github.run_number }}
-          files: desktop/dist/JAMES-Diagnostic.exe
+          files: |
+            desktop/dist/JAMES-Diagnostic-Setup.exe
+            desktop/dist/JAMES-Diagnostic.exe

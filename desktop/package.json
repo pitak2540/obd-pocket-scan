@@ -7,7 +7,7 @@
   "author": "James",
   "scripts": {
     "start": "electron .",
-    "dist": "electron-builder --win portable --ia32"
+    "dist": "electron-builder --win nsis portable --ia32"
   },
   "devDependencies": {
     "electron": "33.2.1",
@@ -36,6 +36,12 @@
       "icon": "icon.png",
       "target": [
         {
+          "target": "nsis",
+          "arch": [
+            "ia32"
+          ]
+        },
+        {
           "target": "portable",
           "arch": [
             "ia32"
@@ -48,7 +54,17 @@
     },
     "asarUnpack": [
       "node_modules/koffi/**"
-    ]
+    ],
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JAMES Diagnostic",
+      "artifactName": "JAMES-Diagnostic-Setup.exe",
+      "language": "1054"
+    }
   },
   "dependencies": {
     "koffi": "2.10.1"
