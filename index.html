@@ -636,9 +636,18 @@ class Elm {
     for (const c of ['ATE0', 'ATL0', 'ATS0', 'ATH1', 'ATAT1', 'ATSP0']) await this.cmd(c, 2500).catch(() => {});
     const id = await this.cmd('ATI', 2500).catch(() => []);
     this.adapter = id.find(l => /ELM|STN|OBD/i.test(l)) || id[0] || 'ไม่ทราบรุ่น';
-    const r = await this.cmd('0100', 20000);              // first request also searches for the protocol
-    const ok = r.some(l => /4100/.test(l.replace(/\s/g, '')));
-    if (!ok) { const e = new Error('NO_ECU'); e.detail = r.join(' '); throw e; }
+    let r = await this.cmd('0100', 20000);              // first request also searches for the protocol
+    let ok = r.some(l => /4100/.test(l.replace(/\s/g, '')));
+    const tried = [];
+    if (!ok) {                                            // auto-search failed: try each protocol by hand (1 J1850 PWM, 2 J1850 VPW, 3 ISO9141, 4/5 KWP, 6-9 CAN)
+      for (const p of ['6', '8', '7', '9', '5', '4', '3', '2', '1']) {
+        await this.cmd('ATSP' + p, 2500).catch(() => {});
+        r = await this.cmd('0100', p < '6' ? 12000 : 5000).catch(() => []);
+        tried.push(p);
+        if (r.some(l => /4100/.test(l.replace(/\s/g, '')))) { ok = true; break; }
+      }
+    }
+    if (!ok) { const e = new Error('NO_ECU'); e.detail = r.join(' ') + ' (ลองครบโปรโตคอล 1-9 แล้ว)'; throw e; }
     const pn = await this.cmd('ATDPN', 2500).catch(() => ['6']);
     this.proto = ((pn[0] || '6').toUpperCase().replace(/^A(?=.)/, '')[0]) || '6';
     const dp = await this.cmd('ATDP', 2500).catch(() => []);
@@ -1353,6 +1362,24 @@ const PIDS = [
   [0x1F, 'เวลาตั้งแต่สตาร์ท', 's', 0, 65535, 0, b => b[0] * 256 + b[1]],
   [0x21, 'ระยะทางที่ไฟเครื่องโชว์', 'km', 0, 65535, 0, b => b[0] * 256 + b[1]],
   [0x31, 'ระยะทางหลังลบโค้ด', 'km', 0, 65535, 0, b => b[0] * 256 + b[1]],
+  [0x16, 'O2 เซนเซอร์ B1S3', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x17, 'O2 เซนเซอร์ B1S4', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x18, 'O2 เซนเซอร์ B2S1', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x19, 'O2 เซนเซอร์ B2S2', 'V', 0, 1.275, 2, b => b[0] / 200],
+  [0x3C, 'อุณหภูมิแคตตาไลติก B1S1', '°C', -40, 1000, 0, b => (b[0] * 256 + b[1]) / 10 - 40],
+  [0x3D, 'อุณหภูมิแคตตาไลติก B2S1', '°C', -40, 1000, 0, b => (b[0] * 256 + b[1]) / 10 - 40],
+  [0x3E, 'อุณหภูมิแคตตาไลติก B1S2', '°C', -40, 1000, 0, b => (b[0] * 256 + b[1]) / 10 - 40],
+  [0x3F, 'อุณหภูมิแคตตาไลติก B2S2', '°C', -40, 1000, 0, b => (b[0] * 256 + b[1]) / 10 - 40],
+  [0x45, 'ตำแหน่งลิ้นปีกผีเสื้อสัมพัทธ์', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x47, 'ตำแหน่งลิ้นปีกผีเสื้อ B', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x4C, 'ลิ้นปีกผีเสื้อที่สั่ง', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x4A, 'ตำแหน่งคันเร่ง E', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x5A, 'ตำแหน่งคันเร่งสัมพัทธ์', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x5B, 'แบตเตอรี่ไฮบริดคงเหลือ', '%', 0, 100, 0, b => b[0] / 2.55],
+  [0x5D, 'องศาฉีดน้ำมัน', '°', -210, 302, 1, b => (b[0] * 256 + b[1]) / 128 - 210],
+  [0x43, 'ภาระเครื่องยนต์สัมบูรณ์', '%', 0, 100, 0, b => (b[0] * 256 + b[1]) * 100 / 255],
+  [0x4D, 'เวลาที่ไฟเครื่องโชว์', 'min', 0, 65535, 0, b => b[0] * 256 + b[1]],
+  [0x4E, 'เวลาหลังลบโค้ด', 'min', 0, 65535, 0, b => b[0] * 256 + b[1]],
 ].map(([id, name, unit, min, max, dp, f]) => ({ id, name, unit, min, max, dp, f }));
 const PID_BY_ID = new Map(PIDS.map(p => [p.id, p]));
 
