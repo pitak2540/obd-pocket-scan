@@ -1399,6 +1399,13 @@ const DTC_DB = {
   U0001: 'บัสสื่อสาร CAN ความเร็วสูง', U0073: 'บัสสื่อสารของกล่องควบคุม A หยุดทำงาน', U0100: 'ขาดการสื่อสารกับกล่องเครื่องยนต์ (ECM/PCM) A', U0101: 'ขาดการสื่อสารกับกล่องเกียร์ (TCM)', U0121: 'ขาดการสื่อสารกับกล่อง ABS', U0140: 'ขาดการสื่อสารกับกล่องควบคุมตัวถัง (BCM)', U0155: 'ขาดการสื่อสารกับเรือนไมล์',
 };
 if (typeof DTC_EXT !== 'undefined') for (const k in DTC_EXT) if (!(k in DTC_DB)) DTC_DB[k] = DTC_EXT[k];
+/* airbag (SRS) codes seen on real cars; the "-13" style suffix is the failure type byte, decoded by ftbText() */
+Object.assign(DTC_DB, {
+  B0020: 'วงจรชุดจุดระเบิดถุงลมด้านข้างฝั่งซ้ายผิดปกติ', B0028: 'วงจรชุดจุดระเบิดถุงลมด้านข้างฝั่งขวาผิดปกติ',
+  B0050: 'วงจรชุดจุดระเบิดตัวดึงกลับเข็มขัดนิรภัยที่นั่งหน้าฝั่งซ้ายผิดปกติ',
+});
+const FTB = { '11': 'ลัดวงจรลงกราวด์', '12': 'ลัดวงจรเข้าไฟบวก', '13': 'วงจรเปิด/ขาด หรือความต้านทานสูง', '14': 'ลัดลงกราวด์หรือวงจรเปิด', '15': 'ลัดเข้าไฟบวกหรือวงจรเปิด', '16': 'แรงดันวงจรต่ำกว่าเกณฑ์', '17': 'แรงดันวงจรสูงกว่าเกณฑ์' };
+function ftbText(code) { const m = /-([0-9A-Fa-f]{2})$/.exec(code || ''); return m ? (FTB[m[1].toUpperCase()] || '') : ''; }
 /* standard codes that point at the immobilizer / key system */
 const IMMO_CODES = new Set(['P0513', 'P0630', 'P0633', 'U0167', 'U0168', 'U0426']);
 const IMMO_NAME = /immo|smart\s*key|keyless|pats|anti.?theft|security|กุญแจ|กันขโมย/i;
@@ -1454,7 +1461,7 @@ function modName(id, brandKey, ext) {
   return { name: '', brand: '' };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { J2534Transport, KLine, FtdiTransport, NativeTransport, IMMO_CODES, IMMO_NAME, modName, brandOf, BRANDS, Elm, OpenPort, DemoTransport, b2s, s2b, hex, PIDS, PID_BY_ID, dtcInfo, dtcCode };
+if (typeof module !== 'undefined' && module.exports) module.exports = { ftbText, J2534Transport, KLine, FtdiTransport, NativeTransport, IMMO_CODES, IMMO_NAME, modName, brandOf, BRANDS, Elm, OpenPort, DemoTransport, b2s, s2b, hex, PIDS, PID_BY_ID, dtcInfo, dtcCode };
 
 /* ---------- UI ---------- */
 const $ = id => document.getElementById(id);
@@ -1761,7 +1768,7 @@ function renderMods() {
       if (d.status & 0x08) st.push('<span class="pill bad">ยืนยันแล้ว</span>');
       if ((d.status & 0x04) && !(d.status & 0x08)) st.push('<span class="pill warn">รอยืนยัน</span>');
       if (d.status & 0x80) st.push('<span class="pill warn">สั่งไฟเตือน</span>');
-      return '<div class="dtc"><span class="code">' + esc(d.code) + '</span><span class="desc">' + esc(inf.desc) + '</span><span class="meta">' + st.join('') + immoPill(d.base) + '<span>' + esc(inf.sys) + '</span></span></div>';
+      return '<div class="dtc"><span class="code">' + esc(d.code) + '</span><span class="desc">' + esc(inf.desc + (ftbText(d.code) ? ' · ' + ftbText(d.code) : '')) + '</span><span class="meta">' + st.join('') + immoPill(d.base) + '<span>' + esc(inf.sys) + '</span></span></div>';
     }).join('');
     const inf = m.info || {}, idl = [inf.system, inf.part && 'ชิ้นส่วน ' + inf.part, inf.supplier && 'ผู้ผลิต ' + inf.supplier, m.ecu && 'ตอบที่ ' + m.ecu].filter(Boolean).join(' · ');
     const ident = idl ? '<p class="muted mono" style="font-size:12.5px;overflow-wrap:anywhere">' + esc(idl) + '</p>' : '';
