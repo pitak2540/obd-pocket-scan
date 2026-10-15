@@ -195,6 +195,8 @@ ul.plain{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:4px;f
         <h2>กล่องอื่นในรถ</h2>
         <div class="row"><button class="btn primary" id="btnMods">สแกนทุกกล่อง</button><button class="btn" id="btnModsQuick">สแกนเร็ว ABS/SRS/ตัวถัง<small>เฉพาะที่อยู่ตามผังยี่ห้อ</small></button><button class="btn" id="btnModStop" hidden>หยุด</button></div>
         <div class="row"><button class="btn danger" id="btnClrSlip">ลบไฟลื่นไถล (ABS/ESP/TCS)</button><button class="btn danger" id="btnClrEps">ลบไฟพวงมาลัย (EPS)</button></div>
+        <div class="row"><button class="btn" id="btnSas">เรียนรู้ตำแหน่งพวงมาลัย (ตั้งศูนย์)</button></div>
+        <div id="sasBox"></div>
       </div>
       <p class="muted" style="font-size:13px">ถามทุกที่อยู่วินิจฉัยบน CAN เพื่อหา ABS, ถุงลม, พวงมาลัยไฟฟ้า, เรือนไมล์ และกล่องอื่น แล้วอ่านโค้ดกับหมายเลขชิ้นส่วนของแต่ละกล่อง ใช้เวลาราวครึ่งนาทีถึง 1 นาที ควรจอดรถและบิดกุญแจไปที่ ON</p>
       <label class="row" style="font-size:13.5px">ยี่ห้อรถ
@@ -1726,6 +1728,30 @@ function clearGroup(key) {
     showMsg('modMsg', 'ลบ' + g.label + ' สำเร็จ ' + ok + ' กล่อง' + (bad ? ' · กล่องที่ไม่ยอมลบ ' + bad : '') + (left ? ' · โค้ดกลับมา ' + left + ' โค้ด แปลว่าอาการยังอยู่' : ' · ดับเครื่องแล้วสตาร์ทใหม่เพื่อดูว่าไฟดับ'), !!bad || !!left);
   });
 }
+
+const SAS_STEPS = {
+  common: ['จอดบนพื้นราบ ล้อหน้าตรง พวงมาลัยอยู่ตรงกลาง ยางลมตามมาตรฐาน และศูนย์ล้อ/ช่วงล่างต้องปกติ',
+    'เปิดสวิตช์ (ON) ตั้งแต่ต้น ไม่ปลดแบตระหว่างทำ แบตต้องไม่อ่อน (ไฟ > 12 V)',
+    'กด “ลบไฟพวงมาลัย (EPS)” และ/หรือ “ลบไฟลื่นไถล” ด้านบนเพื่อล้างโค้ดค้าง (ถ้ามีโค้ดเซนเซอร์มุมพวงมาลัย ต้องแก้ที่ต้นเหตุก่อน)',
+    'ดับเครื่อง รอ 10 วินาที แล้วสตาร์ทใหม่'],
+  toyota: ['รถรุ่นที่ใช้ระบบ VSC/EPS ของ Toyota ส่วนใหญ่เรียนรู้ศูนย์เองหลังล้างโค้ด: ขับตรงบนถนนเรียบ ความเร็ว 30–40 กม./ชม. ประมาณ 1–2 นาที พร้อมหมุนพวงมาลัยซ้าย-ขวาสุดอย่างช้า ๆ 1 รอบ',
+    'ถ้าไฟ VSC/SLIP ยังไม่ดับ รุ่นนั้นต้องตั้งศูนย์ด้วย Techstream (Zero Point Calibration) แอปนี้ยังไม่ส่งคำสั่งนั้นเพราะไม่มีข้อมูลโปรโตคอลที่ยืนยันแล้ว'],
+  honda: ['Honda ส่วนใหญ่: หลังล้างโค้ดและสตาร์ท ให้หมุนพวงมาลัยซ้ายสุด-ขวาสุดช้า ๆ 1–2 รอบ แล้วขับตรงสั้น ๆ ที่ความเร็วเกิน 20 กม./ชม.',
+    'ถ้าไฟ VSA/EPS ยังไม่ดับ ต้องใช้ HDS ตั้งศูนย์ (แอปนี้ยังไม่ส่งคำสั่งนั้น)'],
+  ford: ['Ford: หลังล้างโค้ด หมุนพวงมาลัยซ้ายสุด-ขวาสุดแล้วกลับมาตรงกลาง ขับตรงที่ 30+ กม./ชม.', 'บางรุ่นต้องใช้ IDS/FDRS ทำ Steering Angle Sensor reset'],
+  mazda: ['Mazda: หลังล้างโค้ด หมุนพวงมาลัยซ้าย-ขวาสุด แล้วขับตรงเกิน 20 กม./ชม.', 'ถ้าไฟ DSC ยังไม่ดับ ต้องใช้ IDS/M-MDS'],
+  isuzu: ['Isuzu: หลังล้างโค้ด หมุนพวงมาลัยซ้าย-ขวาสุดและขับตรงสั้น ๆ', 'ถ้าไฟยังไม่ดับต้องใช้ Tech2/G-IDSS'],
+  mitsubishi: ['Mitsubishi: หลังล้างโค้ด หมุนพวงมาลัยซ้าย-ขวาสุดและขับตรงสั้น ๆ', 'ถ้าไฟ ASC ยังไม่ดับต้องใช้ MUT-III'],
+};
+function toggleSas() {
+  const box = $('sasBox');
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  const b = (S.info && curBrand()) || '';
+  const steps = SAS_STEPS.common.concat(SAS_STEPS[b] || ['ยี่ห้ออื่น: ถ้าไฟไม่ดับหลังขั้นตอนข้างต้น ต้องใช้เครื่องมือเฉพาะยี่ห้อ']);
+  steps.push('สแกนทุกกล่องอีกครั้งเพื่อตรวจว่าไม่มีโค้ดค้างและไฟดับ');
+  box.innerHTML = '<div class="note"><b>ขั้นตอนเรียนรู้ตำแหน่งพวงมาลัย' + (b ? ' · ' + esc(b) : '') + '</b><ol>' + steps.map(s => '<li>' + esc(s) + '</li>').join('') +
+    '</ol><p>หมายเหตุ: คำสั่ง “ตั้งศูนย์เซนเซอร์มุมพวงมาลัย” ของแต่ละยี่ห้อเป็นโปรโตคอลเฉพาะ แอปจึงไม่เดาส่งคำสั่งไปยังกล่อง ABS/EPS เพื่อความปลอดภัย</p></div>';
+}
 function clearModule(id) {
   const m = (S.mods || []).find(x => x.id === id); if (!m) return;
   S.modClearId = null;
@@ -1994,6 +2020,7 @@ function start() {
   $('btnModsQuick').onclick = () => scanModules(true);
   $('btnClrSlip').onclick = () => askGroup('slip');
   $('btnClrEps').onclick = () => askGroup('eps');
+  $('btnSas').onclick = () => toggleSas();
   $('btnModStop').onclick = () => { S.modStop = true; };
   $('modList').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
