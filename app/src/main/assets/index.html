@@ -1695,7 +1695,7 @@ function clearAllModules() {
   });
 }
 const GRP = {
-  slip: { re: /ABS|ทรงตัว|ESP|ESC|VSC|DSC|TCS|ลื่นไถล/i, label: 'ไฟลื่นไถล (ABS/ESP/TCS)' },
+  slip: { re: /ABS|ทรงตัว|ESP|ESC|VSC|VSA|DSC|TCS|ลื่นไถล/i, label: 'ไฟลื่นไถล (ABS/ESP/TCS)' },
   eps: { re: /พวงมาลัย|EPS|EPAS|steering/i, label: 'ไฟพวงมาลัย (EPS)' },
 };
 const grpTargets = g => (S.mods || []).filter(m => m.proto && m.dtcs.length && g.re.test(modLabel(m).name));
